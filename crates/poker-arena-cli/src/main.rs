@@ -25,7 +25,7 @@ fn main() -> ExitCode {
             print_games();
             ExitCode::SUCCESS
         }
-        Command::Run(args) => match run(args) {
+        Command::Run(args) => match run(*args) {
             Ok(code) => code,
             Err(msg) => {
                 eprintln!("error: {msg}");
@@ -47,7 +47,7 @@ enum Command {
     /// List known game variants (registry id and display name).
     Games,
     /// Run a match between bots.
-    Run(RunArgs),
+    Run(Box<RunArgs>),
 }
 
 #[derive(clap::Args)]
