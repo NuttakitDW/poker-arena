@@ -12,7 +12,7 @@ See [DESIGN.md](DESIGN.md) for the full architecture and roadmap.
 | Crate | Purpose |
 |---|---|
 | `poker-core` | Pure rules: cards, hand evaluators (high, A-5 low, 2-7 low, eight-or-better, badugi), data-driven `GameSpec` variants, side-pot engine, and the `HandState` per-hand state machine. No I/O; reusable by solvers and analysis tools. |
-| `poker-wire` | Versioned JSON-lines wire-protocol definitions (M2). |
+| `poker-wire` | Versioned JSON-lines wire-protocol definitions. |
 | `poker-arena` | Competition layer: `Bot` trait, builtin baseline bots, match runner with duplicate dealing, winnings statistics, hand-history log, and the `poker-arena` CLI. |
 
 ## Quick start
@@ -83,8 +83,8 @@ impl Bot for MyBot {
 
 Every decision point hands you a self-contained `ActionRequest` (your cards,
 the board, stacks, pot, and structured legal actions); an event stream keeps
-stateful bots informed. Out-of-process bots (any language, JSON lines over
-TCP or stdio) arrive with the wire protocol in M2.
+stateful bots informed. Out-of-process bots connect in any language over
+JSON lines (TCP or stdio) — see the section above.
 
 ## Fairness model
 
@@ -101,14 +101,11 @@ TCP or stdio) arrive with the wire protocol in M2.
 
 ## Status
 
-- **M1 — done.** Heads-up ↔ 9-max hold'em (NL/FL), builtin bots, duplicate
-  dealing, BB/100 ± 95% CI, CLI, hand-history logs.
-- **M2 — done.** Wire protocol v1 (TCP + subprocess stdio, any language),
-  per-action deadlines and fault handling, Omaha / Omaha hi-lo with
-  pot-limit betting.
-- **M3 — done.** Stud family (stud, stud8, razz — bring-in, upcards,
-  by-upcard action order), draw family (2-7/A-5 triple draw, badugi,
-  five-card draw — with discard-pile reshuffling), behavioral statistics.
+Feature-complete for its current scope: twelve variants across three game
+families over one data-driven rules engine, in-process and wire bots with
+deadlines and fault policies, duplicate-deal variance reduction with
+Student-t confidence intervals, behavioral profiling, deterministic replay
+from a seed, and JSON-lines hand histories.
 
 All engine rules are covered by scripted-hand fixtures and seeded property
 tests (chip conservation, legality soundness, determinism).

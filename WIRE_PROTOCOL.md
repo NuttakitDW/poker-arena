@@ -116,26 +116,26 @@ order.
 Sent when it is this bot's turn. Reply with a `BotMsg::action` message
 conforming to `legal` (see [Action semantics](#action-semantics)).
 
-| field            | type            | meaning                                         |
-|------------------|-----------------|---------------------------------------------------|
-| `hand_no`        | u64             | Current hand.                                    |
-| `seat`           | usize           | This bot's seat (redundant but explicit).        |
-| `street`         | u8              | 0-based street index.                            |
-| `street_label`   | string          | Human label, e.g. `"preflop"`, `"flop"`.         |
-| `hole`           | `[Card]`        | This bot's own hole cards.                       |
-| `board`          | `[Card]`        | Community cards dealt so far.                    |
-| `upcards`        | `[[Card]]`      | Face-up cards by seat (stud games), `upcards[seat]`. Public information — every seat's, not just this bot's. Empty lists (and an all-empty array for non-stud games) when nobody has upcards yet. |
-| `stacks`         | `[u64]`         | Remaining stack by seat.                         |
-| `street_commits` | `[u64]`         | Each seat's total commitment *this street*.      |
-| `pot_total`      | u64             | Total chips in the pot (all streets).            |
-| `folded`         | `[bool]`        | Which seats have folded.                         |
-| `legal`          | `LegalActions`  | What's legal right now (see below).              |
-| `deadline_ms`    | u64 or `null`   | Echo of the enforced deadline for this decision. |
+`act` deliberately carries **no table state**. The event stream is the
+single source of truth: your hole cards arrive in `deal-hole` /
+`draw-result` events, the board in `deal-community`, upcards in `deal-up`,
+and every wager in `post` / `acted` events — reconstruct whatever your
+strategy needs from those. `legal` is included (and only `legal`) because
+action legality must remain arena-authoritative; bots must never derive it
+themselves.
 
-`Card` is a 2-character string, rank then suit: `"As"`, `"Td"`, `"2c"`.
+| field         | type           | meaning                                          |
+|---------------|----------------|--------------------------------------------------|
+| `hand_no`     | u64            | Current hand.                                    |
+| `seat`        | usize          | This bot's seat (redundant but explicit).        |
+| `legal`       | `LegalActions` | What's legal right now (see below).              |
+| `deadline_ms` | u64 or `null`  | Echo of the enforced deadline for this decision. |
+
+`Card` (used throughout the events) is a 2-character string, rank then
+suit: `"As"`, `"Td"`, `"2c"`.
 
 ```json
-{"t":"act","hand_no":1,"seat":0,"street":0,"street_label":"preflop","hole":["As","Kd"],"board":[],"upcards":[[],[]],"stacks":[9900,9800],"street_commits":[100,200],"pot_total":300,"folded":[false,false],"legal":{"fold":true,"check":false,"call":100,"raise":{"min_to":300,"max_to":10000}},"deadline_ms":5000}
+{"t":"act","hand_no":1,"seat":0,"legal":{"fold":true,"check":false,"call":100,"raise":{"min_to":300,"max_to":10000}},"deadline_ms":5000}
 ```
 
 ### `hand-end`
@@ -276,7 +276,7 @@ arena, so `showdown-show` is never redacted.
   as usual.
 
 ```json
-{"t":"act", … ,"legal":{"fold":false,"check":false,"draw":{"max_discards":3}}, … }
+{"t":"act","hand_no":4,"seat":1,"legal":{"fold":false,"check":false,"draw":{"max_discards":3}},"deadline_ms":5000}
 {"t":"action","action":{"kind":"discard","cards":["2c","7h"]}}
 ```
 
@@ -294,7 +294,7 @@ arena, so `showdown-show` is never redacted.
   still raise the completed bet through the usual `raise` family.
 
 ```json
-{"t":"act", … ,"legal":{"fold":false,"check":false,"bring_in":10,"bet":{"min_to":20,"max_to":20}}, … }
+{"t":"act","hand_no":9,"seat":2,"legal":{"fold":false,"check":false,"bring_in":10,"bet":{"min_to":20,"max_to":20}},"deadline_ms":5000}
 {"t":"action","action":{"kind":"bring-in"}}
 ```
 
@@ -342,11 +342,11 @@ the whole hand-end-to-hand-end cycle fits in ~20 lines:
 {"t":"event","hand_no":1,"ev":{"event":"deal-hole","seat":1,"cards":[],"count":2}}
 {"t":"event","hand_no":1,"ev":{"event":"street-start","street":0,"label":"preflop"}}
 {"t":"event","hand_no":1,"ev":{"event":"acted","seat":1,"action":{"kind":"call"},"street_commit":100,"all_in":false}}
-{"t":"act","hand_no":1,"seat":0,"street":0,"street_label":"preflop","hole":["As","Kd"],"board":[],"upcards":[[],[]],"stacks":[9900,9900],"street_commits":[100,100],"pot_total":200,"folded":[false,false],"legal":{"fold":false,"check":true,"raise":{"min_to":200,"max_to":10000}},"deadline_ms":5000}
+{"t":"act","hand_no":1,"seat":0,"legal":{"fold":false,"check":true,"raise":{"min_to":200,"max_to":10000}},"deadline_ms":5000}
 {"t":"action","action":{"kind":"check"}}
 {"t":"event","hand_no":1,"ev":{"event":"street-start","street":1,"label":"flop"}}
 {"t":"event","hand_no":1,"ev":{"event":"deal-community","street":1,"cards":["2c","7h","9s"]}}
-{"t":"act","hand_no":1,"seat":0,"street":1,"street_label":"flop","hole":["As","Kd"],"board":["2c","7h","9s"],"upcards":[[],[]],"stacks":[9900,9900],"street_commits":[0,0],"pot_total":200,"folded":[false,false],"legal":{"fold":false,"check":true,"bet":{"min_to":100,"max_to":9900}},"deadline_ms":5000}
+{"t":"act","hand_no":1,"seat":0,"legal":{"fold":false,"check":true,"bet":{"min_to":100,"max_to":9900}},"deadline_ms":5000}
 {"t":"action","action":{"kind":"bet","to":150}}
 {"t":"event","hand_no":1,"ev":{"event":"acted","seat":0,"action":{"kind":"bet","to":150},"street_commit":150,"all_in":false}}
 {"t":"event","hand_no":1,"ev":{"event":"acted","seat":1,"action":{"kind":"fold"},"street_commit":0,"all_in":false}}
@@ -375,6 +375,10 @@ def send(msg):
 
 
 def choose_action(legal):
+    if legal.get("draw") is not None:
+        return {"kind": "discard", "cards": []}  # stand pat
+    if legal.get("bring_in") is not None:
+        return {"kind": "bring-in"}
     if legal.get("check"):
         return {"kind": "check"}
     if legal.get("call") is not None:

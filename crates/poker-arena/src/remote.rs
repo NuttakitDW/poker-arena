@@ -330,18 +330,11 @@ impl Bot for WireBot {
             return Err(fault);
         }
 
+        // Table state travels only via the event stream; `act` carries just
+        // the decision context (see ArenaMsg::Act docs).
         let msg = ArenaMsg::Act {
             hand_no: req.hand_no,
             seat: req.seat,
-            street: req.street,
-            street_label: req.street_label.to_string(),
-            hole: req.hole.to_vec(),
-            board: req.board.to_vec(),
-            upcards: req.upcards.to_vec(),
-            stacks: req.stacks.to_vec(),
-            street_commits: req.street_commits.to_vec(),
-            pot_total: req.pot_total,
-            folded: req.folded.to_vec(),
             legal: req.legal.clone(),
             deadline_ms: self.timeout.map(|d| d.as_millis() as u64),
         };

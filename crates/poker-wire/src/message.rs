@@ -51,21 +51,15 @@ pub enum ArenaMsg {
     /// It is this bot's turn; reply with a `BotMsg::Action` conforming to
     /// `legal`. `deadline_ms` is echoed so bots can self-limit; the arena
     /// enforces the real deadline server-side regardless.
+    ///
+    /// Deliberately carries no table state: the event stream is the single
+    /// source of truth (hole cards, board, upcards, stacks, pot, folds are
+    /// all reconstructible from the events already delivered), and `legal`
+    /// is here because legality must stay arena-authoritative — bots must
+    /// never derive it themselves.
     Act {
         hand_no: u64,
         seat: usize,
-        street: u8,
-        street_label: String,
-        hole: Vec<Card>,
-        board: Vec<Card>,
-        /// Face-up cards per seat (stud games); empty vecs for games without
-        /// upcards. Public information — every seat's upcards, not just this
-        /// bot's.
-        upcards: Vec<Vec<Card>>,
-        stacks: Vec<u64>,
-        street_commits: Vec<u64>,
-        pot_total: u64,
-        folded: Vec<bool>,
         legal: LegalActions,
         deadline_ms: Option<u64>,
     },
@@ -459,15 +453,6 @@ mod tests {
             ArenaMsg::Act {
                 hand_no: 1,
                 seat: 0,
-                street: 0,
-                street_label: "preflop".to_string(),
-                hole: vec![c(Rank::Ace, Suit::Spades), c(Rank::King, Suit::Diamonds)],
-                board: Vec::new(),
-                upcards: vec![vec![c(Rank::Ten, Suit::Clubs)], Vec::new()],
-                stacks: vec![9_900, 9_800],
-                street_commits: vec![100, 200],
-                pot_total: 300,
-                folded: vec![false, false],
                 legal: sample_legal_actions(),
                 deadline_ms: Some(5_000),
             },
