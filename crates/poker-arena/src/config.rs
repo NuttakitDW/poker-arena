@@ -43,7 +43,7 @@ pub struct MatchConfig {
     /// games.
     pub starting_stack: Chips,
     pub fault_policy: FaultPolicy,
-    /// Per-action deadline. Enforced as a hard deadline for wire bots (M2);
-    /// measured but not preemptible for in-process bots.
+    /// Per-action deadline. Enforced as a hard deadline for wire bots;
+    /// in-process bots run without deadline enforcement.
     pub timeout: Option<Duration>,
 }

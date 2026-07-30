@@ -1208,7 +1208,7 @@ mod tests {
 
     #[test]
     fn every_registered_spec_starts_a_hand() {
-        // The M1 `Unsupported` gate is gone: stud and draw specs must all
+        // The `Unsupported` construction gate is gone: stud and draw specs must all
         // reach a first decision (or settle outright) without erroring.
         for id in GameSpec::known_ids() {
             let spec = GameSpec::by_id(

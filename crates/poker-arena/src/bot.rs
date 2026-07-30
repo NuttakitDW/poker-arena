@@ -2,7 +2,7 @@
 //!
 //! `Bot` is the single abstraction every competitor implements. In-process
 //! bots implement it directly; remote bots are wrapped by a wire adapter
-//! that implements the same trait (M2), so the runner never distinguishes.
+//! that implements the same trait, so the runner never distinguishes.
 //!
 //! Bots are driven per hand: `hand_start`, a stream of seat-redacted
 //! `event`s, an `act` call whenever it is their turn, and `hand_end`.
@@ -37,7 +37,7 @@ pub struct ActionRequest<'a> {
     pub street_label: &'static str,
     pub hole: &'a [Card],
     pub board: &'a [Card],
-    /// Face-up cards per seat (stud; M3). Public information — every seat's
+    /// Face-up cards per seat (stud games). Public information — every seat's
     /// upcards, not just the acting seat's. Empty vecs for games without
     /// upcards.
     pub upcards: &'a [Vec<Card>],

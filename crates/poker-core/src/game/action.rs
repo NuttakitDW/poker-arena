@@ -31,9 +31,9 @@ pub enum Action {
     Raise {
         to: Chips,
     },
-    /// Stud: post the forced bring-in (M3).
+    /// Stud: post the forced bring-in.
     BringIn,
-    /// Draw streets: discard these cards and draw replacements (M3).
+    /// Draw streets: discard these cards and draw replacements.
     /// Discarding zero cards is "standing pat".
     Discard {
         cards: Vec<Card>,
@@ -63,10 +63,10 @@ pub struct LegalActions {
     /// Available when facing a wager (includes preflop raises over the blind).
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub raise: Option<BetBounds>,
-    /// Stud bring-in amount (M3).
+    /// Stud bring-in amount.
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub bring_in: Option<Chips>,
-    /// Draw-street bounds (M3).
+    /// Draw-street bounds.
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub draw: Option<DrawBounds>,
 }
@@ -84,7 +84,7 @@ pub struct BetBounds {
     pub max_to: Chips,
 }
 
-/// Bounds for a draw decision (M3).
+/// Bounds for a draw decision.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DrawBounds {

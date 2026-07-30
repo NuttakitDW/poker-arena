@@ -63,7 +63,7 @@ pub enum Event {
         street: u8,
         cards: Vec<Card>,
     },
-    /// Stud upcards (public; M3).
+    /// Stud upcards (public).
     DealUp {
         seat: Seat,
         cards: Vec<Card>,
@@ -76,7 +76,7 @@ pub enum Event {
         street_commit: Chips,
         all_in: bool,
     },
-    /// Draw-street result: discard count is public, `drawn` private (M3).
+    /// Draw-street result: discard count is public, `drawn` private.
     DrawResult {
         seat: Seat,
         discarded: u8,

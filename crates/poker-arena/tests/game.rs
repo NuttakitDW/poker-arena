@@ -1,8 +1,8 @@
-//! Runner-level smoke tests for the M3 stud and draw families: full matches
+//! Runner-level smoke tests for the stud and draw families: full matches
 //! driven end to end through [`run_match`] (and, for one case, over the wire
 //! protocol against the real `wire-caller` binary), checking arena-level
 //! invariants — completion, zero-sum totals, zero faults, determinism — for
-//! every M3 registry id. Hand-by-hand rules for these families are
+//! every stud/draw registry id. Hand-by-hand rules for these families are
 //! `poker-core/tests/stud.rs` and `poker-core/tests/draw.rs`'s job.
 
 use std::time::Duration;
@@ -20,9 +20,9 @@ const STAKES: Stakes = Stakes {
     big_blind: 100,
 };
 
-/// Every M3 registry id: the three stud variants, the three draw variants,
+/// Every stud/draw registry id: the three stud variants, the three draw variants,
 /// and five-card draw.
-const M3_IDS: [&str; 7] = [
+const STUD_DRAW_IDS: [&str; 7] = [
     "stud-fl",
     "stud8-fl",
     "razz-fl",
@@ -44,9 +44,9 @@ fn config(spec: GameSpec, decks: u64, seed: u64, dealing: DealingMode) -> MatchC
     }
 }
 
-/// Three seats fits every M3 spec's seat range (all support at least
+/// Three seats fits every stud/draw spec's seat range (all support at least
 /// `2..=6`), and exercises Caller/Random/Shover together: between them they
-/// hit every M3 decision family (bring-in vs. completion, discard vs. stand
+/// hit every stud/draw decision family (bring-in vs. completion, discard vs. stand
 /// pat, and ordinary betting).
 fn three_bots(seed: u64) -> Vec<Box<dyn Bot>> {
     vec![
@@ -56,12 +56,12 @@ fn three_bots(seed: u64) -> Vec<Box<dyn Bot>> {
     ]
 }
 
-// --- 1. every M3 id: a run_match smoke ------------------------------------
+// --- 1. every stud/draw id: a run_match smoke ------------------------------------
 
 #[test]
 fn every_m3_registry_id_completes_cleanly() {
     let decks = 80;
-    for &id in &M3_IDS {
+    for &id in &STUD_DRAW_IDS {
         let spec = GameSpec::by_id(id, STAKES).unwrap_or_else(|| panic!("unknown id {id}"));
         let cfg = config(spec, decks, 1_234, DealingMode::Seeded);
         let mut bots = three_bots(5);

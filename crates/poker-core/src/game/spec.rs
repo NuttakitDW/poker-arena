@@ -80,7 +80,7 @@ pub enum FirstToAct {
     /// this is the button/small blind). The big blind retains the option to
     /// raise when the pot is unraised back around.
     AfterBlinds,
-    /// Stud: determined by visible upcards (M3).
+    /// Stud: determined by visible upcards.
     ByUpcards,
 }
 
@@ -95,9 +95,9 @@ pub enum DealSpec {
     HolePrivate(u8),
     /// `n` shared community cards.
     Community(u8),
-    /// `n` face-up cards to each active player (stud; M3).
+    /// `n` face-up cards to each active player (stud).
     HoleUp(u8),
-    /// A draw round: each active player may replace up to `max` cards (M3).
+    /// A draw round: each active player may replace up to `max` cards.
     Draw { max: u8 },
 }
 

@@ -124,7 +124,7 @@ conforming to `legal` (see [Action semantics](#action-semantics)).
 | `street_label`   | string          | Human label, e.g. `"preflop"`, `"flop"`.         |
 | `hole`           | `[Card]`        | This bot's own hole cards.                       |
 | `board`          | `[Card]`        | Community cards dealt so far.                    |
-| `upcards`        | `[[Card]]`      | Face-up cards by seat (stud; M3), `upcards[seat]`. Public information — every seat's, not just this bot's. Empty lists (and an all-empty array for non-stud games) when nobody has upcards yet. |
+| `upcards`        | `[[Card]]`      | Face-up cards by seat (stud games), `upcards[seat]`. Public information — every seat's, not just this bot's. Empty lists (and an all-empty array for non-stud games) when nobody has upcards yet. |
 | `stacks`         | `[u64]`         | Remaining stack by seat.                         |
 | `street_commits` | `[u64]`         | Each seat's total commitment *this street*.      |
 | `pot_total`      | u64             | Total chips in the pot (all streets).            |
@@ -198,8 +198,8 @@ The only other message a bot sends, always in reply to an `act`.
 | `call`    | —              | Call the current wager (amount is implied).        |
 | `bet`     | `to: u64`      | Open the betting this street to a total of `to`.   |
 | `raise`   | `to: u64`      | Raise to a total street commitment of `to`.        |
-| `bring-in`| —              | Stud bring-in (M3).                                |
-| `discard` | `cards: [Card]`| Draw-street discard (M3); empty = stand pat.       |
+| `bring-in`| —              | Stud bring-in.                                |
+| `discard` | `cards: [Card]`| Draw-street discard; empty = stand pat.       |
 
 ```json
 {"t":"action","action":{"kind":"raise","to":300}}
@@ -226,9 +226,9 @@ form of the same events the engine and hand logs use.
 | `deal-hole`      | `seat, cards: [Card], count`. Private to `seat` — observers (and this bot, for other seats) see `cards: []` with `count` still populated. |
 | `street-start`   | `street, label` (e.g. `"flop"`)                                    |
 | `deal-community` | `street, cards: [Card]`                                            |
-| `deal-up`        | `seat, cards: [Card]` (stud upcards; public; M3)                   |
+| `deal-up`        | `seat, cards: [Card]` (stud upcards; public)                   |
 | `acted`          | `seat, action: Action, street_commit, all_in`                      |
-| `draw-result`    | `seat, discarded, drawn: [Card]` (M3; `drawn` redacted like `deal-hole`) |
+| `draw-result`    | `seat, discarded, drawn: [Card]` (`drawn` redacted like `deal-hole`) |
 | `showdown-show`  | `seat, cards: [Card], hi: HandValue\|null, lo: HandValue\|null`    |
 | `pot-awarded`    | `pot, side: "whole"\|"hi"\|"lo", winners: [[seat, amount], ...]`    |
 | `hand-end`       | `nets: [i64]`                                                       |
@@ -256,13 +256,13 @@ arena, so `showdown-show` is never redacted.
     wagered yet this street.
   - `raise: { min_to, max_to } | null` — present only when facing a wager.
   - `bring_in: u64 | null`, `draw: { max_discards: u8 } | null` — stud/draw
-    variants (M3; see below).
+    variants (see below).
   - **`min_to == max_to` means there is exactly one legal total** for that
     action — typically a short all-in below the normal minimum raise, or a
     fixed-limit bet size. Send that exact value; there is no range to pick
     from.
 
-### Draw decisions (M3)
+### Draw decisions
 
 - On a draw street, every non-folded seat (all-in seats included) is asked
   exactly once, in seat order starting left of the button, *before* that
@@ -280,7 +280,7 @@ arena, so `showdown-show` is never redacted.
 {"t":"action","action":{"kind":"discard","cards":["2c","7h"]}}
 ```
 
-### Stud bring-in decisions (M3)
+### Stud bring-in decisions
 
 - The first betting street of a stud game (`ForcedBets::BringIn` variants —
   `stud-fl`, `stud8-fl`, `razz-fl`) opens with the worst door card owing a

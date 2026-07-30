@@ -58,7 +58,7 @@ pub enum ArenaMsg {
         street_label: String,
         hole: Vec<Card>,
         board: Vec<Card>,
-        /// Face-up cards per seat (stud; M3); empty vecs for games without
+        /// Face-up cards per seat (stud games); empty vecs for games without
         /// upcards. Public information — every seat's upcards, not just this
         /// bot's.
         upcards: Vec<Vec<Card>>,

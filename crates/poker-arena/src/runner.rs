@@ -102,8 +102,8 @@ pub struct MatchResult {
 /// exists for). A forfeit mid-deck under Duplicate discards that deck's
 /// partial observations.
 ///
-/// `config.timeout` is unused in M1 (bots run in-process with no deadline
-/// enforcement).
+/// `config.timeout` applies to wire bots (the CLI passes it to `WireBot`);
+/// the runner itself imposes no deadline on in-process bots.
 pub fn run_match(
     config: &MatchConfig,
     bots: &mut [Box<dyn Bot>],
