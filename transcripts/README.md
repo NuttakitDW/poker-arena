@@ -13,7 +13,7 @@ the same hand numbers.
 Every line is one JSON object:
 
 ```json
-{"hand": 175, "ev": {"event": "multiway all-in etc...", ...}}
+{"hand": 175, "ev": {"event": "...", ...}}
 ```
 
 `hand` is the 0-based hand counter for the match (matches `Event::HandStart`
@@ -49,10 +49,20 @@ truncated mid-hand.
 5. `showdown-show` reveals each remaining seat's hand and its evaluator
    value(s) (`hi`/`lo`, `HandValue(u32)`; the top nibble, `(v >> 20) & 0xF`,
    is the hand class for the `High` evaluator — `0`=high card ... `8` =
-   straight flush — used below to call out "premium" showdowns).
+   straight flush — used below to call out "premium" showdowns for the
+   games whose hi side actually uses the High evaluator: holdem, omaha,
+   stud/stud8, 5cd. Badugi's value instead encodes how many of the four
+   cards form a badugi in that same nibble, `4`=four-card badugi down to
+   `1`; razz/2-7/A-5's low-hand values aren't nibble-classed at all, so
+   those games' descriptions below spell out the actual low by hand).
 6. `pot-awarded` shows exactly who won what, `side` distinguishing a
    `whole`-pot scoop from a `hi`/`lo` split; `pot` is a **pot index** (0 =
-   main pot, 1+ = a side pot), not a chip amount.
+   main pot, 1+ = a side pot), not a chip amount. Side pots never occur in
+   these matches: `poker-arena run` resets every seat to the same stack
+   each hand, and with equal stacks any all-in call converges on exactly
+   the same total commitment as the shove itself, so there's no way for a
+   shorter stack to arise mid-hand — see the note under "How to
+   regenerate" below.
 7. `hand-end.nets` is winnings-minus-contributions per seat for that hand
    and always sums to zero.
 
@@ -66,24 +76,66 @@ cargo build --release -p poker-arena-cli
 
 Each game section below gives the exact command used to produce that
 game's source match (same seed, same bots, same seat count — reproducible
-forever per the fairness model in the top-level README). Add `--log
-somewhere.log` to capture the full match, then find a specific curated hand
-with e.g. `grep '"hand":175,' somewhere.log` (or `jq 'select(.hand==175)'`
-if lines aren't pre-filtered). The bots (`builtin:random[:seed]`,
-`builtin:shover`, `builtin:caller`) are deterministic and hand-strength-
-oblivious — they don't evaluate their cards at all, so a given seed
-produces the exact same sequence of actions regardless of which registered
-game variant you point it at; only the showdown evaluator (and therefore
-who wins) can differ between variants dealt from the same seed. A few hand
-descriptions below rely on this to compare the *same* deal across sibling
-games (e.g. `holdem-nl`/`holdem-fl`, or `27td-fl`/`a5td-fl`).
+forever per the fairness model in the top-level README, given the same
+binary). Add `--log somewhere.log` to capture the full match, then find a
+specific curated hand with e.g. `grep '"hand":175,' somewhere.log` (or
+`jq 'select(.hand==175)'` if lines aren't pre-filtered).
+
+The bots (`builtin:random[:seed]`, `builtin:shover`, `builtin:caller`) are
+deterministic and hand-strength-oblivious — they don't evaluate their cards
+at all, so a given seed produces the exact same sequence of actions
+regardless of which registered game variant you point it at, *as long as
+the two games deal the same number of hole cards and share the same
+betting structure* (so their `legal` action shapes line up decision for
+decision). Only the showdown evaluator (and therefore who wins) can differ
+between such sibling variants dealt from the same seed. Several hand
+descriptions below lean on this to compare the *same* deal across sibling
+games:
+
+- `holdem-nl` / `holdem-fl` deal the same two hole cards per seat for a
+  given hand number (see hands 0 and 28 in both files).
+- `omaha-pl` / `omaha8-pl` / `omaha8-fl` deal the same four hole cards per
+  seat for a given hand number (see hand 0, present in all three files).
+- `stud-fl` / `stud8-fl` share the identical fixed-limit betting structure,
+  so their action sequences match move-for-move, not just the deal (see
+  hand 22, present in both files).
+- `27td-fl` / `a5td-fl` deal and play out identically for a given hand
+  number (both are fixed-limit triple draw with a 5-card hand); only the
+  low evaluator (2-7 vs. A-5) differs, which occasionally flips who wins —
+  see hand 78 below, the flagship example.
 
 All twelve source matches here used `--hands 400 --seed 7 --dealing
-seeded`, mixing `builtin:random` (creates raises and folds),
-`builtin:shover` (creates all-ins), and `builtin:caller` (creates
-showdowns) so each match samples a wide range of textures. Every claim
-below (winner, hand class, pot size, discard counts, capped streets) was
-checked against the actual event lines, not guessed from the bot mix.
+seeded`, mixing `builtin:random` (creates raises and folds), `builtin:
+shover` (creates all-ins), and `builtin:caller` (creates showdowns) so each
+match samples a wide range of textures. Every claim below (winner, hand
+class, pot size, discard counts, capped streets, low strings) was checked
+against the actual event lines and, for the low-hand games, hand-computed
+from the raw cards — not guessed from the bot mix or reused from a
+previous run.
+
+**A note on regeneration and reproducibility.** The commands below are
+exact, but a match built from a *different* binary build can produce
+different hands from the same `--seed`: this project's dealing/seating
+internals are not part of its public API contract, only the CLI's
+documented flags are. The transcripts in this directory were captured
+against one specific release build; if you rebuild and rerun a command and
+get different cards, that's expected — rerun the analysis pipeline
+(described below) against your own log rather than assuming hand numbers
+carry over.
+
+**A note on side pots.** With `poker-arena run`, every seat starts every
+hand at the same stack (`--stack-bb`, reset per hand), and forced bets
+(blinds/antes/bring-in) are the same small fraction of a stack for
+everyone. Under those conditions no side pot can ever form: whenever an
+active player is fully matching bets street after street, their remaining
+stack tracks every other fully-matched player's remaining stack exactly,
+so the moment anyone goes all-in, every other player who can still call
+does so for the *same* total commitment (their whole equal stack) rather
+than a lesser amount. Side pots need players to already be at different
+effective stack depths when the all-in happens, which structurally can't
+happen here. We looked for one across all twelve 400-hand source matches
+(4,800 hands) and confirmed zero `pot-awarded` events with a nonzero pot
+index anywhere — so no curated hand below claims a side pot.
 
 ---
 
@@ -96,24 +148,26 @@ checked against the actual event lines, not guessed from the bot mix.
   --log holdem-nl.log
 ```
 
-- **hand 0** — five-way all-in preflop (seat 4 re-raises to 6430, seat 0
-  shoves to 10000, everyone calls); board runs out `As 5d 3s / 5c / Jc`;
-  seat 2's `Ad 6d` makes two pair (aces and fives) — the best of all five
-  hands shown — and scoops the 50000 pot.
-- **hand 4** — a preflop raising war narrows to seat 0 vs seat 1 all-in;
-  seat 0's `4c Tc` completes the wheel (A-2-3-4-5) off an `As 5h / 2c / 3c`
-  board to beat seat 1's two pair (aces and treys); wins 21859.
-- **hand 9** — four-way all-in preflop; the board pairs to `6c 3d 6d` on
-  the flop and pairs *again* with `6s` on the turn, giving the board trip
-  sixes outright; seat 0's `6h 8d` turns that into quad sixes, beating seat
-  1's full house (sixes full of treys, made the same way) and two rivals'
-  bare trip sixes; scoops 40100.
-- **hand 175** — preflop goes four raises deep (245 → 1723 → 7688 → 10000)
-  before all five seats are all-in; the board pairs twice (`Th Ts` on the
-  flop, `6s 6c` on flop/turn) so everyone effectively plays the board's two
-  pair — it comes down to kickers, and seat 4's ace kicker (`4s As`) beats
-  four rivals holding the same two pair with a king, jack, or 9 kicker;
-  scoops 50000.
+- **hand 0** — five-way all-in preflop (seat 0 raises to 9563, seat 1
+  shoves to 10000, everyone calls); board runs `As 5d 3s / 5c / Jc`; seat
+  2's `Ad 6d` makes two pair (aces and fives) — the best of all five hands
+  shown — and scoops the 50000 pot.
+- **hand 3** — seat 4 shoves preflop and gets called down three-way; board
+  `7s 2d 9h / 2c / 9s` pairs twice; seat 2's `2h Ks` rivers a full house
+  (deuces full of nines) to beat seat 3's and seat 4's matching board two
+  pair; wins 30050.
+- **hand 28** — three-way all-in preflop (seat 0 shoves, seat 1 and seat 4
+  call); board `Jd 3s Qc / 2d / Qd` pairs queens; seat 4's `5d Ad` makes an
+  ace-high diamond flush (using both hole diamonds plus three on the
+  board) to beat seat 1's and seat 0's matching board-based two pair;
+  scoops 30100. **Compare with holdem-fl's hand 28 below** — same deal,
+  much smaller pot, because fixed-limit lets a player escape.
+- **hand 141** — a four-bet preflop war (2340 → 4723 → 7505 → 10000) puts
+  four of the five seats all-in; the board pairs twice more (`8c`/`8d` and
+  `9s`) on a `Kc 8c 2s / 9s / 6s` runout, so it comes down to who also
+  paired a hole card: seat 4's `4s 3s` rivers a flush (five spades: `9s 6s
+  4s 3s 2s`) to beat three rivals' pairs and a bare high card; scoops
+  42340.
 
 ## holdem-fl — Fixed-Limit Texas Hold'em
 
@@ -124,23 +178,26 @@ checked against the actual event lines, not guessed from the bot mix.
   --log holdem-fl.log
 ```
 
-- **hand 3** — the flop gets raised to the fixed-limit cap (four
-  bets/raises: bet, raise, raise, raise) three-way; seat 2 rivers a full
-  house (deuces full of nines, the board pairs both 2s and 9s) to beat
-  seat 0's and seat 3's matching board-based two pair; wins 7100.
-- **hand 5** — no capped street, just a clean river cooler: seat 1's
-  `3h 6c` completes a 3-to-7 straight on `Kc 9d 5d 4s 7h`; seat 0 folds the
-  river after a raising war, and seat 1's straight beats seat 2's pair of
-  fours at showdown; wins 3400.
-- **hand 9** — the *same deck* as holdem-nl's hand 9 (same seed reproduces
-  identical hole cards and board across game variants): board again runs
-  `6c 3d 6d / 6s / Qd` for the same quad-sixes-vs-boat cooler, but
-  fixed-limit's small bet sizes and three folds keep it heads-up for a
-  modest 2000 pot instead of an all-in.
-- **hand 119** — the richest capped hand in the set: flop, turn, *and*
-  river are each raised to the four-bet cap among the same three players;
-  seat 1's `3h Js` rivers two pair (jacks and treys) off `Qd 3s 8s 5h Jh`
-  to beat seat 0's and seat 4's matching pair of eights; wins 7800.
+- **hand 0** — the fixed-limit sibling of holdem-nl's hand 0: identical
+  hole cards and board (`As 5d 3s / 5c / Jc`); turn caps at four raises
+  four-way, but seat 1 folds the turn to survive; seat 2's `Ad 6d` two pair
+  (aces and fives) still wins, but for a modest 5700 instead of an
+  all-in-preflop 50000 — fixed-limit lets seat 1 escape a hand that no-limit
+  couldn't.
+- **hand 4** — a clean, uncapped river cooler: after two folds preflop,
+  seat 0's `4c Tc` completes the wheel (A-2-3-4-5, using the flop's `As 5h`
+  and the turn's `2c`) to beat seat 1's rivered two pair (aces and treys);
+  wins 2600.
+- **hand 28** — the fixed-limit sibling of holdem-nl's hand 28: same board
+  and hole cards, but this time the turn caps at four raises three-way and
+  seat 1 folds the river before seeing the last card; seat 4's `5d Ad`
+  ace-high diamond flush still beats seat 0's two pair, but the pot is only
+  5900 — a fifth of holdem-nl's 30100 all-in for the identical cooler.
+- **hand 31** — a slow-played monster: seat 2's pocket eights (`8c 8d`)
+  flop trip eights (`Kc 8h Th`) for a flopped set that becomes quad eights
+  when the board pairs itself again with nothing more than routine calls
+  and one river raise; seat 2's quads beat seat 1's and seat 4's two pair
+  and seat 0's one pair; wins 3600.
 
 ## omaha-pl — Pot-Limit Omaha
 
@@ -156,22 +213,25 @@ checked against the actual event lines, not guessed from the bot mix.
   aces *and* seat 0's ace-high club flush (`Jc 5c` plus three board clubs)
   — all three are legitimate premium hands, and the biggest boat wins;
   scoops 33447.
-- **hand 3** — a plain two-way all-in (no capped street, no premium
-  showdown): after a big pot-limit turn/river escalation, seat 1's rivered
-  two pair (tens and sixes) holds up against seat 0's two pair (nines and
-  sixes); wins 20550.
-- **hand 5** — three-way all-in on the flop (`7d Jd 3d`) after a raising
-  war; seat 3's `Qd...9d` makes a queen-high diamond flush (two hole
-  diamonds plus three on the board) to beat seat 1's two pair and seat 2's
-  one pair; scoops 30100.
-- **hand 9** — the flop board `Ah Tc Jh`, completed by `Kc`/`Qc`, shows a
-  four-card broadway run (T-J-Q-K) that *nobody* can actually use, because
-  Omaha requires exactly two hole cards and no hole cards bridge the gap;
-  three-way flop all-in resolves down to seat 1's bare pair of aces beating
-  seat 3's lower pair and seat 2's high card; scoops 30000.
-- **hand 52** — no all-in, just a river-heavy pot-limit escalation
-  (600/1800/5400) that gets called down; seat 2's `Ad 7s 9s 4c` makes a
-  ten-high spade flush to beat seat 1's rivered two pair; wins 16200.
+- **hand 2** — heads-up turn all-in; board `3d 5h Qd / 4c / Ad` lets both
+  players make a straight: seat 0's `6c 7h` completes 3-to-7 (using the
+  flop's `3d 5h` and turn's `4c`), while seat 2's `2c 3s` makes the wheel
+  (A-2-3-4-5, using the same flop cards plus the river's `Ad`) — the 7-high
+  straight beats the 5-high wheel; wins 24987.
+- **hand 3** — four-way all-in preflop; board `Td 5d 6c / Jc / 6h` pairs
+  sixes, and *all four* players make two pair off that shared pair: seat
+  2's jacks-and-fives (`Ac 5c`) edges seat 1's tens-and-sixes, seat 0's
+  nines-and-sixes, and seat 3's sevens-and-sixes; scoops the entire 40000
+  pot.
+- **hand 4** — three-way turn all-in; board `Kd 4s Kc / Td / 8d` pairs
+  kings, and it comes down to who else paired: seat 0's `5h...8h` makes
+  kings-and-eights to beat seat 2's kings-and-fours and seat 1's bare pair
+  of kings (no second pair at all); wins 30000.
+- **hand 324** — heads-up, no all-in, just pot-limit pressure (600 → 1800
+  → 5400) called down each street; board `Jc 2c 3s / Td / Th` gives three
+  tens between the board and seat 1's own hole `Tc`; seat 1's `3h 9h`
+  rivers tens full of treys to beat seat 2's two pair (kings and twos);
+  wins 16200.
 
 ## omaha8-pl — Pot-Limit Omaha Hi-Lo (8 or Better)
 
@@ -181,30 +241,32 @@ checked against the actual event lines, not guessed from the bot mix.
   --bot builtin:caller --bot builtin:random:9 --log omaha8-pl.log
 ```
 
-- **hand 0** — same three-way preflop all-in and board (`7h Ac 4s / 7c /
-  Kc`) as omaha-pl's hand 0, but here the low counts: seat 2's kings-full
-  boat takes the hi half (16724) while seat 0's flush hand *also* holds the
-  best qualifying low (A-3-4-5-7, using 3s/5c plus the board's A-4-7) and
-  takes the lo half (16723); seat 1's bigger boat (sevens full of aces)
-  wins nothing.
-- **hand 15** — a preflop all-in between seat 0 and seat 1 where both hold
-  `A-2-3` plus a kicker; the board (`4s 3s 5c` / `8c` / `Js`) lets both
-  make the *exact same* wheel (A-2-3-4-5) — simultaneously a straight and
-  the nut low. Hi splits evenly (6896/6896) and lo splits evenly too
-  (6896/6896): a wheel scooping its own quarter on both sides.
-- **hand 19** — heads-up flop all-in; seat 1's `3h Qs 2d 9d` makes two pair
-  *and* the best qualifying low, scooping both the hi (14039) and lo
-  (14039) halves outright since seat 0's hand has no qualifying low at
-  all; 28078 total.
-- **hand 96** — four-way preflop all-in (raises to 500/1762/7548/10000);
-  the board pairs fours (`4h 4d 6c`); seat 0's `Kh Qc` rivers trip fours to
-  scoop the entire hi half (20000) while seat 2 and seat 3 tie and split
-  the low (10000 each) — a genuine three-winner hand.
-- **hand 264** — three-way flop all-in (raise war to 9600); seat 0's
-  `Ad Kd` makes an ace-high diamond flush to take the hi half (15000) alone
-  while the low ties three ways between seat 0, seat 1, and seat 2 (5000
-  each) — one player collects both a hi share and a lo share in the same
-  hand.
+- **hand 0** — the hi-lo sibling of omaha-pl's hand 0 (same deal, same
+  triple cooler): seat 2's kings-full boat takes the hi half (16724) while
+  seat 0's flush hand *also* holds the best qualifying low (A-3-4-5-7,
+  using `3s 5c` plus the board's `Ac 4s 7c`) and takes the lo half (16723);
+  seat 1's bigger boat (sevens full of aces) wins nothing.
+- **hand 1** — a four-bet preflop war ends in a 2-way all-in; board `Kh Jd
+  2h / 2d / Qh` has only one card 8-or-under (a paired deuce), so no low
+  ever qualifies; seat 3's `Qs Js Jh Jc` rivers a full house (jacks full of
+  twos, using two hole jacks plus the board's third jack and paired twos)
+  to scoop the entire 25914 pot, no lo split despite the hi-lo format.
+- **hand 15** — a preflop all-in between two players who both hold `A-2-3`
+  plus a kicker; the board (`4s 3s 5c` / `8c` / `Js`) lets both make the
+  *exact same* wheel (A-2-3-4-5) — simultaneously a straight and the nut
+  low. Hi splits evenly (6852/6852) and lo splits evenly too (6852/6852):
+  a wheel scooping its own quarter on both sides.
+- **hand 78** — three-way all-in preflop (one player folds to the shove);
+  board `6d Ts 2d / 8h / Qs`; seat 0's `8c 6c 9d As` turns two pair (eights
+  and sixes) to take the entire hi half (16506) alone, while the other two
+  live players — both holding `A-...-3` low draws — tie for the low and
+  split that half (8253 each): the hi winner and the lo winners are three
+  completely different hands.
+- **hand 201** — flop all-in three-way (one player folds); seat 3's `6d 5h
+  7c 6c` rivers trip sixes off `Qs 7s 8d / Jh / 6s` to take the entire hi
+  half (15640) alone, while the other two live players tie for the low and
+  split it (7820 each) — again nobody double-dips between hi and lo; total
+  pot 31280.
 
 ## omaha8-fl — Fixed-Limit Omaha Hi-Lo (8 or Better)
 
@@ -215,26 +277,26 @@ checked against the actual event lines, not guessed from the bot mix.
 ```
 
 - **hand 0** — the fixed-limit sibling of omaha8-pl's hand 0 and
-  omaha-pl's hand 0 (same deck): turn gets capped at four raises; seat 2's
+  omaha-pl's hand 0 (same deck): turn caps at four raises; seat 2's
   kings-full boat takes the hi side (2700), seat 0's A-3-4-5-7 low takes
   the lo side (2700).
+- **hand 8** — flop caps at four raises three-way; seat 0's `Kd 8d` rivers
+  kings-and-eights (using a paired `Kc`-`Th` flop) to take the hi side
+  (1750) while seat 2's `Ah...6s` takes the lo side (1750) with an 8-low —
+  the simplest hi-lo split in the set, no premium hand, no scoop, just a
+  clean division.
 - **hand 15** — the fixed-limit sibling of omaha8-pl's hand 15: the same
-  double-wheel chop (both seat 0 and seat 1 make A-2-3-4-5, a straight
-  that's also the nut low), river capped at four raises; hi splits
-  1425/1425 and lo splits 1425/1425.
-- **hand 67** — flop capped at four raises (100/200/300/400) heads-up into
-  `Jc 7c 4d` / `Ts` / `9h`; both players make straights, but *neither*
-  qualifies for an 8-or-better low, so the whole pot goes as a single
-  `side: "whole"` award (not split) to seat 0's higher straight — an
-  omaha8 hand that plays exactly like plain-hi Omaha when no low
-  qualifies; wins 3200.
-- **hand 72** — three-way, no capped street: seat 1's `Jh Jc` makes a full
-  house (treys full of fours) to take the hi side alone (1400) while seat 2
-  and seat 3 tie and split the low (700 each) — hi and lo go to entirely
-  different sets of players.
-- **hand 193** — the simplest hi-lo split in the set: heads-up, no raising
-  war, no capped street; seat 3's two pair takes the hi side (1075) and
-  seat 2/seat 3 tie for the low, splitting 538/537 (odd chip to seat 2).
+  double-wheel chop (both players make A-2-3-4-5, a straight that's also
+  the nut low), flop capped at four raises; hi splits 850/850 and lo
+  splits 850/850.
+- **hand 96** — board pairs fours (`4h 4d 6c`); seat 0's `Kh Qc` rivers
+  trip fours to scoop the entire hi half (1600) while the other two live
+  players tie and split the low (800 each) — a three-winner hand with no
+  overlap between the hi winner and the lo winners.
+- **hand 163** — flop war ends with seat 0 folding; seat 1's `Kh Kd`
+  rivers a full house (kings full of sixes, off a `Kc 6c Ad / 2c / 6d`
+  board) to scoop the entire hi half (2000) alone while seat 2 and seat 3
+  tie and split the low (1000 each).
 
 ## stud-fl — Seven-Card Stud
 
@@ -244,28 +306,27 @@ checked against the actual event lines, not guessed from the bot mix.
   --bot builtin:caller --bot builtin:random:9 --log stud-fl.log
 ```
 
-- **hand 1** — third street goes four bets deep (100/200/300/400) with
-  three jack door-cards clashing; fifth and sixth street are *also*
-  capped at four raises each; seat 2 rivers a queen-to-ace broadway
-  straight (`Tc Js Qc Kh Ah`) to beat seat 3's pair of jacks and seat 1's
-  ace-high; wins 7080.
-- **hand 5** — seat 0's 9-door owes the bring-in and completes straight to
-  a bet instead of posting the forced amount; third street caps at four
-  raises; seat 3's rivered pair of kings beats seat 2's pair of fours; a
-  simple one-pair pot (7080's neighbor in variance, not every capped
-  street ends in a monster) — wins 3380.
-- **hand 8** — seat 2's 2-door actually posts the forced bring-in (rather
-  than completing); third street caps at four raises; seat 1's `3h 3s`
-  rivers a full house (treys full of fours) to crush seat 3's trip tens;
-  wins 6680.
-- **hand 13** — the richest raising war in the stud-fl set: fourth, fifth,
-  *and* sixth street are each capped at four bets/raises between the same
-  three players; seat 3's `4s 5s` completes a 3-to-7 straight to beat seat
-  2's two pair (aces and kings) and seat 0's ace-high; wins 7680.
-- **hand 69** — a raise war (3 bets/raises third street, not quite capped)
-  that seat 0 folds out of; seat 2's `Jh Qh` rivers a queen-high heart
-  flush (two hole hearts plus three on later streets) to beat seat 3's two
-  pair (kings and jacks); wins 3480.
+- **hand 1** — third street caps at four raises (seat 0's jack door
+  completes straight to a bet rather than posting the forced bring-in);
+  seat 1's rivered pair of queens beats seat 3's pair of jacks; a simple
+  capped-street pot, no premium hand needed — wins 2880.
+- **hand 8** — seat 2's deuce door owes the bring-in and completes
+  straight to a bet; fourth *and* fifth street both cap at four raises;
+  seat 1's pocket treys catch a third on fourth street and pair up with
+  the board's fours for a full house (treys full of fours), beating seat
+  2's and seat 0's one-pair hands; wins 6680.
+- **hand 22** — fifth street caps at four raises three-way; seat 3's `6d
+  4h` completes a 3-to-7 straight (using upcards `3s`, `7d`, `5s`) to beat
+  seat 2's trip jacks and seat 0's two pair (aces and queens); wins 6480.
+  **Compare with stud8-fl's hand 22 below** — identical deal and action.
+- **hand 24** — a fairly quiet hand (third street's only real raise
+  exchange doesn't reach the cap) that runs all the way to seventh street;
+  seat 0 rivers a queen-high club flush (five clubs picked up across the
+  streets, starting from the `9c` hole card) to beat seat 2's two pair
+  (kings and sevens); wins 2480.
+- **hand 36** — seat 0's trey door posts a literal forced bring-in; third
+  street caps at four raises; seat 2's `Jd Kd` rivers a king-high diamond
+  flush to beat seat 1's ace-high (no pair); wins 3680.
 
 ## stud8-fl — Seven-Card Stud Hi-Lo (8 or Better)
 
@@ -275,27 +336,34 @@ checked against the actual event lines, not guessed from the bot mix.
   --bot builtin:caller --bot builtin:random:9 --log stud8-fl.log
 ```
 
-- **hand 1** — identical door cards and action to stud-fl's hand 1 (same
-  seed): third, fifth, and sixth street all cap at four raises; seat 2
-  again rivers the `Tc Js Qc Kh Ah` broadway straight — but here *nobody*
-  makes a qualifying low, so the pot is awarded as a single `whole` scoop
-  (7080) rather than split.
-- **hand 13** — the stud8 sibling of stud-fl's hand 13 (same three-street
-  capped raising war, same cards): this time seat 3's 3-to-7 straight
-  *also* qualifies as the best low, so seat 3 scoops both sides explicitly
-  (hi 3840 + lo 3840) instead of just winning a hi-only pot.
-- **hand 33** — seat 3's 2-door posts an actual forced bring-in (not a
-  completion); third street caps at four raises; seat 3's `2s 4c` rivers a
-  4-to-8 straight that is simultaneously the best low, scooping both sides
-  (hi 2240 + lo 2240) to beat seat 2's high card.
-- **hand 61** — fifth street caps at four raises three-way; seat 3's
-  `6h Js` rivers an 8-to-Q straight to take the hi side (2690) while seat
-  2's rough high card holds the best qualifying low and takes the lo side
-  (2690) — hi and lo split cleanly between two different players.
-- **hand 223** — a quiet hi-lo split with no capped street or raising war:
-  heads-up, seat 1's rivered flush (`Kd Qd Jd 6d` plus the 9d hole card)
-  takes the hi side (1440), seat 0 holds the only qualifying low and takes
-  the lo side (1440).
+- **hand 10** — third, fourth, *and* seventh street all cap at four raises
+  — a marathon three-street war; seat 2's pair of eights narrowly beats
+  seat 3's pair of sevens for the hi half (3790), while seat 3's 7-6-5-3-A
+  takes the low half (3790) over seat 0's weaker qualifying low: hi and lo
+  go to different winners despite the war being three-handed the whole
+  way.
+- **hand 22** — identical deal and action to stud-fl's hand 22 (stud-fl
+  and stud8-fl share the same fixed-limit betting structure, so these
+  strength-oblivious bots play it out move-for-move): fifth street caps at
+  four raises three-way; seat 3's `6d 4h` completes a 3-to-7 straight that
+  *also* qualifies as the best low (every card is 8-or-under), scooping
+  both the hi (3240) and lo (3240) halves instead of winning hi-only as in
+  stud-fl; beats seat 2's trip jacks and seat 0's two pair; wins 6480
+  total.
+- **hand 29** — heads-up from fourth street on; seat 2's `As Ts` pairs up
+  twice more (trip tens, then a second pair) for tens full of sevens,
+  beating seat 3's two pair (queens and fives); no low qualifies; wins
+  3580.
+- **hand 60** — heads-up from fifth street, fourth street capped at four
+  raises; seat 2's flush (`Jc` plus four more clubs picked up along the
+  way) is simultaneously an 8-7-5-4-2 low, scooping both the hi (1490) and
+  lo (1490) halves against seat 1's ace-high with no qualifying low; 2980
+  total.
+- **hand 136** — seat 1's deuce door posts a literal forced bring-in;
+  third and fourth street both cap at four raises; seat 2's king-high
+  diamond flush (`Jd` plus four more diamonds) doubles as an 8-6-5-4-3
+  low, scooping both hi (2090) and lo (2090) to beat seat 1's two pair
+  (aces and treys, no qualifying low); 4180 total.
 
 ## razz-fl — Razz
 
@@ -305,31 +373,32 @@ checked against the actual event lines, not guessed from the bot mix.
   --bot builtin:caller --bot builtin:random:9 --log razz-fl.log
 ```
 
-Razz's showdown evaluator is A-to-5 low (not High), so class-nibble
-"premium" tagging doesn't apply here — every showdown below is described by
-its actual low.
+Razz's showdown evaluator is A-to-5 low (aces count low), so the
+high-class-nibble "premium" tagging used above doesn't apply — every
+showdown below is described by its actual low, hand-computed from the
+seven cards shown. Razz also forces in the *highest* door card (an
+exposed ace counts high for this purpose only, the opposite of how it
+counts at showdown).
 
-- **hand 0** — seat 3's exposed ace brings it in (razz forces in the
-  *highest* door card, and an exposed ace counts high for that purpose
-  only); third street caps at four raises; seat 2 rivers a 7-6-5-4-A
-  (seven-low) to beat seat 1's 9-8-7-3-A (nine-low); wins 2730.
-- **hand 1** — same three-jack-door clash as stud-fl/stud8-fl's hand 1,
-  but razz: seat 1's queen door brings it in; fifth street caps at four
-  raises; seat 3's J-T-7-4-3 (jack-low) narrowly beats seat 2's J-T-8-2-A —
-  both jack-low, seat 3's third card (7) beats seat 2's (8); wins 3780.
-- **hand 2** — the biggest razz pot in the set: seat 1's king door
-  completes the bring-in straight to a bet; fourth *and* seventh street
-  both cap at four raises across a four-way-then-two-way battle; seat 3
-  rivers a T-8-6-5-2 (ten-low) to beat seat 0's J-7-4-3-A (jack-low);
-  wins 9480.
-- **hand 7** — seat 0's exposed door ace forces the bring-in, which seat 0
-  completes straight to a bet; fifth street caps at four raises three-way;
-  seat 0 rivers a T-8-7-2-A (ten-low) to beat seat 1's rough K-J-8-5-3
-  (king-low, about as bad as a made low gets); wins 4380.
-- **hand 11** — seat 0's king door brings it in and completes straight to
-  a bet; a heads-up raising war on third street (100/200/300); seat 0
-  rivers a J-T-9-4-2 (jack-low) to beat seat 1's K-J-5-3-A (king-low);
-  wins 2280.
+- **hand 0** — seat 3's exposed ace door forces the bring-in (then folds
+  to a raise); third street caps at four raises; seat 2 rivers a
+  7-6-5-4-A (seven-low) to beat seat 1's 9-8-7-3-A (nine-low); wins 2730.
+- **hand 1** — seat 1's queen door is the highest showing and brings it
+  in; fifth street caps at four raises; seat 3's J-T-7-4-3 (jack-low)
+  edges seat 1's J-T-8-2-A — both jack-and-ten-low, seat 3's third card
+  (7) beats seat 1's (8); wins 5080.
+- **hand 4** — seat 0's exposed ace door forces the bring-in, which seat 0
+  completes straight to a bet; a raise exchange on third street doesn't
+  quite cap; seat 1's 8-5-4-3-A (eight-low) beats seat 0's own
+  9-8-6-3-A (nine-low); wins 2380.
+- **hand 8** — seat 3's queen door forces the bring-in and completes
+  straight to a bet; third *and* fourth street both cap at four raises;
+  seat 2's J-9-8-4-2 (jack-low) beats seat 0's Q-T-8-6-5 (queen-low); wins
+  4280.
+- **hand 10** — seat 0's eight door forces the bring-in and completes
+  straight to a bet; fourth street caps at four raises; seat 0's own
+  6-5-3-2-A (six-low) crushes seat 3's 9-7-6-5-3 (nine-low) — the
+  bring-in completer wins their own pot; wins 2880.
 
 ## 27td-fl — 2-7 Triple Draw
 
@@ -341,32 +410,35 @@ its actual low.
 
 2-7 lowball: aces always count high (worst), straights/flushes count
 against you, and any unpaired hand beats any paired hand regardless of
-rank.
+rank; between two paired hands the *lower* pair wins.
 
-- **hand 1** — seat 1 draws one card, then discards its *entire* hand (5
-  cards) on the second draw, then folds anyway to a raise; seat 2 and seat
-  3 both stand pat through every draw; seat 2's rough `7-4-T-Q-J` beats
-  seat 3's pair of jacks — a pair loses to any no-pair hand, however ugly;
-  wins 3200.
-- **hand 3** — seat 2 discards all five cards on the first draw (a total
-  reshuffle) then folds; seat 3 keeps drawing across all three rounds (2,
-  then 1, then 4 cards) and still folds on the last round; seat 0 and seat
-  1 both stand pat the whole hand, and seat 0's king-high no-pair beats
-  seat 1's ace-high no-pair (in 2-7, ace counts as the *worst* high card,
-  so king-high edges ace-high); wins 7600.
-- **hand 12** — seat 0 draws three, then one, then three more across all
-  three rounds and still folds on the last one; seat 1 and seat 2 both
-  stand pat the entire hand; seat 1's deuces-paired hand beats seat 2's
-  sixes-paired hand (the lower pair wins); wins 4500.
-- **hand 29** — seat 0 draws one, then three, then discards its *entire*
-  final hand (5 cards) on the last draw with no more chances left to
-  improve — and it pays off: seat 0's fresh pair of treys beats seat 2's
-  pair of queens and seat 3's pair of kings; wins 4700.
-- **hand 392** — seat 3 draws three on the first round then stands pat
-  twice; seat 1 and seat 2 stand pat the entire hand. Seat 3's rough
-  king-high no-pair beats seat 1's pair of treys *and* seat 2's two pair
-  (fours and sixes) — any unpaired hand beats any paired hand in 2-7
-  lowball, no matter how high; wins 4800.
+- **hand 1** — seat 2 draws one, then discards its entire hand (5 cards)
+  on the second draw, then folds anyway; seat 1 and seat 3 both stand pat
+  the whole hand. Seat 1's pair of treys (`3h 3c`) beats seat 3's pair of
+  jacks (`Jh Jc`) — between two paired hands, the lower pair wins; wins
+  3500.
+- **hand 4** — seat 2 discards its entire hand on the first draw then
+  folds to a raise, seat 3 folds too; seat 1 and seat 0 stand pat the rest
+  of the way. Seat 1's rough ace-high (A-Q-7-4-3, the worst possible
+  no-pair start) still beats seat 0's pair of kings — any no-pair beats
+  any pair; wins 3000.
+- **hand 7** — seat 3 draws two, then stands pat, then discards its entire
+  hand (5 cards) on the final draw with no more chances left — and it
+  works: seat 3's fresh K-J-9-4-2 no-pair beats seat 1's pair of treys and
+  seat 0's pair of tens, both of whom stood pat the entire hand; wins
+  2800.
+- **hand 34** — draw1 and draw2 both cap at four raises across three
+  players; seat 1 discards three, stands pat, then discards four more on
+  the final draw; the resulting Q-J-9-8-2 no-pair beats seat 3's rough
+  ace-high no-pair (Q beats A as the worst card) and seat 2's pair of
+  nines; wins 5400.
+- **hand 78** — seat 1 draws two, ends up discarding all five, then folds;
+  heads-up from there, both remaining players stand pat. Seat 3's `4d Qd
+  8c 6c 9d` (Q-9-8-6-4) beats seat 0's `As 6d Ts 2d 8h` (A-T-8-6-2) — ace
+  counts as the *worst* card in 2-7, so seat 0's ace-high loses to seat
+  3's queen-high; wins 4900. **See a5td-fl's hand 78 below: the identical
+  deal and action, but the winner flips**, because A-5 lowball treats that
+  same ace as the *best* card instead.
 
 ## a5td-fl — A-5 Triple Draw
 
@@ -378,33 +450,35 @@ rank.
 
 Same seed, same bots, same seat count as 27td-fl — and since these builtin
 bots never look at their own cards, the action sequence for a given hand
-number is often *identical* between the two games. The evaluator isn't:
-A-5 lowball treats aces as low (the opposite of 2-7). Hands 1, 12, and 29
-below reach the same winner as their 27td-fl counterparts; hand 3 is the
-one where the ace-low/ace-high difference actually flips the result.
+number is identical between the two games. The evaluator isn't: A-5
+lowball treats aces as low (the opposite of 2-7). Hands 1, 4, and 34 below
+reach the same winner as their 27td-fl counterparts (the ace never ends up
+being the deciding card); hand 78 is the one where the ace-low/ace-high
+difference flips the result.
 
-- **hand 1** — mirrors 27td-fl's hand 1 move for move: seat 2's pat
-  `7-4-T-Q-J` again beats seat 3's pair of jacks; a pair still loses to any
-  no-pair hand under A-5 rules; wins 3200.
-- **hand 3** — the flagship hand for this file: identical deal and action
-  to 27td-fl's hand 3, but the winner *flips*. Seat 1 stands pat with
-  `3h Th 2h Ks Ac` and seat 0 stands pat with `Kd Td 5d 6c Jc`. In 27td-fl
-  the ace in seat 1's hand counts high, so seat 1's hand reads
-  A-K-T-3-2 and loses to seat 0's K-J-T-6-5. In a5td-fl the same ace counts
-  *low*, so seat 1's hand reads K-T-3-2-A — and a king-ten beats seat 0's
-  king-jack on the second card — flipping the winner to seat 1; wins 7600.
-- **hand 12** — mirrors 27td-fl's hand 12: seat 1's pair of deuces again
-  beats seat 2's pair of sixes (lower pair still wins); wins 4500.
-- **hand 29** — mirrors 27td-fl's hand 29: seat 0's total final-draw
-  reshuffle again lands a pair of treys that beats seat 2's queens and
-  seat 3's kings; wins 4700.
-- **hand 154** — not in the 27td-fl set: seat 1 draws three fresh cards on
-  *every one* of the three draw rounds (nine replacement cards total off a
-  five-card hand) chasing a low, and rivers a pair of aces; draw1 and
-  draw2 both cap at four raises three-way. Because A-5 lowball treats aces
-  as the lowest rank, a pair of aces is the best (least-bad) pair
-  possible: it beats seat 0's pair of tens and seat 3's pair of kings;
-  wins 7000.
+- **hand 1** — mirrors 27td-fl's hand 1 move for move: seat 1's pat pair
+  of treys again beats seat 3's pair of jacks; a pair still loses to a
+  lower pair under A-5 rules the same way it does under 2-7; wins 3500.
+- **hand 4** — mirrors 27td-fl's hand 4: seat 1's no-pair ace-high still
+  beats seat 0's pair of kings — no-pair beats pair regardless of which
+  lowball variant is being played, since seat 0's pair is the deciding
+  factor either way; wins 3000.
+- **hand 34** — mirrors 27td-fl's hand 34: seat 1's Q-J-9-8-2 no-pair
+  (after the same three-then-stand-then-four discard pattern) again beats
+  seat 3's no-pair (here reading K-J-6-4-A once the ace counts low, still
+  worse than seat 1's queen-high) and seat 2's pair of nines; wins 5400.
+- **hand 78** — the flagship hand for this file: identical deal and action
+  to 27td-fl's hand 78, but the winner *flips*. Seat 3 stands pat with `4d
+  Qd 8c 6c 9d` and seat 0 stands pat with `As 6d Ts 2d 8h`. In 27td-fl the
+  ace in seat 0's hand counts high, so seat 0 reads A-T-8-6-2 and loses to
+  seat 3's Q-9-8-6-4. In a5td-fl the same ace counts *low*, so seat 0's
+  hand reads T-8-6-2-A — and seat 0's ten beats seat 3's queen as the
+  worst (highest) card — flipping the winner to seat 0; wins 4900.
+- **hand 91** — not in the 27td-fl set: seat 2 draws one, then stands pat,
+  then discards three on the final draw and rivers a fresh low; draw2 caps
+  at four raises three-way. Seat 2's resulting T-8-7-6-A (ten-low, ace
+  counted low) beats seat 1's stand-pat K-J-9-8-3 (king-low) and seat 3's
+  stand-pat pair of kings; wins 4500.
 
 ## badugi-fl — Badugi
 
@@ -416,35 +490,38 @@ one where the ace-low/ace-high difference actually flips the result.
 
 Badugi hands are ranked by how many of the four cards form a "badugi"
 (distinct ranks *and* distinct suits) — 4 beats 3 beats 2 beats 1 card —
-then by the low value of the cards actually used.
+then by the low value of the cards actually used; aces count low, same as
+A-5 lowball.
 
-- **hand 1** — seat 1 draws two, then three more, then folds to a raise;
-  seat 2 stands pat the whole hand with a three-card badugi (`3c 4s Td` —
-  the second club, `7c`, is dead weight) and beats seat 3's two-card
-  badugi (`Qs` plus one of three same-rank jacks); wins 3300.
-- **hand 2** — seat 2 discards its *entire* four-card hand on draw1, then
-  discards all four again on draw2 (two consecutive total resets) before
-  folding on draw3; seat 3 and seat 0 both stand pat with king-high
-  three-card badugis (`Kc 5s 4d` vs `Kd Ah 6c`), and seat 3's lower second
-  card (5 vs 6) edges it out; wins 5800.
-- **hand 3** — seat 3 discards all four cards on draw1 (total reset) then
-  stands pat twice; seat 1 and seat 0 both stand pat the entire hand.
-  Seat 0's original deal (`9h 2c 9s Kd`, the two nines conflicting) reduces
-  to a three-card `K-9-2` badugi that beats seat 3's reset two-card `6-5`
-  and seat 1's two-card badugi (three hearts in its original four cut it
-  down to two cards); wins 3100.
-- **hand 29** — the biggest pot in the set: four-way action through all
-  three draw rounds with heavy churn (seat 0 discards 2, then 4 — a
-  near-total reset, then 1 more; seat 1 discards 2, then 3). At showdown
-  seat 0's `9-3-2` is the only three-card badugi at the table, beating
-  three separate two-card badugis (seat 1's, seat 2's — reduced from three
-  same-rank queens — and seat 3's, reduced from two same-rank kings plus
-  two same-suit hearts); wins 7600.
-- **hand 129** — seat 1 draws just one card then folds to a raise; seat 0
-  discards its *entire* four-card hand on draw2 (total reset), then draws
-  one more on draw3; the resulting `Q-J-6` three-card badugi beats seat 2's
-  two-card `3-A` and seat 3's two-card `4-2` (three clubs collide in seat
-  3's hand); wins 3500.
+- **hand 4** — seat 2 discards its entire hand on the first draw then
+  folds to a raise; seat 1 and seat 0 both stand pat the whole hand.
+  Seat 1's `3h Ac` (the other two cards, `Qc 7c`, are extra clubs) reduces
+  to a two-card 3-A badugi that beats seat 0's two-card 5-2 (`5h 2c`, its
+  own extra heart and club discarded); wins 2800.
+- **hand 6** — seat 0 discards its entire four-card hand on draw1 (a
+  total reset) then stands pat twice; seat 2 stands pat the entire hand.
+  Seat 0's reset lands `8h 6c Ad Jd` — an 8-6-A three-card badugi (the two
+  diamonds conflict) — that edges seat 2's own three-card T-8-A (also
+  ace-anchored, but capped by a ten instead of an eight); both beat seat
+  3's two-card T-6; wins 3650.
+- **hand 7** — seat 3 folds preflop; seat 2 draws three cards on *every
+  one* of the three draw rounds (nine replacement cards total) chasing a
+  badugi and still folds on the last draw; seat 1 and seat 0 both stand
+  pat the entire hand. Seat 1's `3h 9s 2d` (the second trey is dead
+  weight) makes a 9-3-2 three-card badugi that beats seat 0's J-6-4 (two
+  clubs conflict, keeping the jack); wins 4300.
+- **hand 8** — seat 3 discards its entire hand on draw1, keeps churning
+  with three more on draw2, then discards all four again on draw3 before
+  folding — three near-total resets in one hand, none of which pay off;
+  seat 2 stands pat the whole time with a Q-6-A three-card badugi (two
+  spades conflict) that beats seat 0's stand-pat two-card Q-3 (three
+  diamonds collide); wins 5400.
+- **hand 141** — seat 0 folds draw1 after a bet; seat 2 discards its
+  entire hand *twice* (draw1 and draw3, a total reset each time) while
+  seat 1 and seat 3 both stand pat the whole hand. Seat 2's second reset
+  lands a 7-6-2 three-card badugi that edges seat 1's stand-pat 9-3-A
+  (ace-anchored but capped by a nine) and beats seat 3's two-card K-4;
+  wins 2900.
 
 ## 5cd-nl — No-Limit Five-Card Draw
 
@@ -454,27 +531,27 @@ then by the low value of the cards actually used.
   --bot builtin:caller --bot builtin:random:9 --log 5cd-nl.log
 ```
 
-- **hand 2** — four-way all-in preflop (everyone calls seat 3's shove);
-  seat 1 discards all five cards on the single draw street and rivers a
-  pair of tens to beat three high-card hands, including seat 3's and seat
-  0's stand-pat holdings (ace-high and queen-high, respectively); wins the
-  full 40000 pot.
-- **hand 10** — the mirror image of hand 2: seat 3 shoves preflop, seat 1
-  folds, seat 0 and seat 2 call all-in; seat 3 stands pat with a pair of
-  eights already in the original five cards, while seat 2 discards all
-  five and whiffs to high card, and seat 0 (also standing pat) only has
-  high card; seat 3's dealt pair holds up; wins 30050.
-- **hand 145** — the standout hand of the file: four-way all-in preflop;
-  on the draw, seat 0 discards its *entire* hand (all five cards) and
-  comes back with `3d 5d Ad 9d 2d` — a flush drawn completely from
-  scratch — to beat seat 2's stand-pat pair of queens and two high-card
-  hands; scoops the full 40000 pot.
-- **hand 198** — four-way all-in preflop; seat 0 is dealt a full house
-  straight off the deal (`Jc Qc Js Qh Qs`, queens full of jacks) and
-  understandably stands pat, while seat 2 discards all five cards on the
-  draw and still only manages high card; seat 0's pat boat scoops the
-  entire 40000 pot untouched.
-- **hand 201** — three-way all-in preflop (seat 1 folds); nobody draws on
-  the single draw street at all — every remaining player stands pat; seat
-  2's dealt straight (`2d 3s 4d 6d 5h`) needs no improvement and beats two
-  high-card hands; wins 30100.
+- **hand 0** — four-way all-in preflop; seat 3 discards three cards on the
+  single draw street (still only high card afterward) while the other
+  three stand pat; seat 2's dealt pair of nines (`9d 9h`, untouched) beats
+  seat 0's dealt pair of sevens and two high-card hands; wins the full
+  40000 pot.
+- **hand 3** — four-way all-in preflop; seat 2 discards its entire hand
+  (all five cards) on the draw and comes back with a pair of queens, but
+  seat 3 was already dealt two pair (deuces and nines, `7s 2d 9h 2c 9s`)
+  and simply stands pat — the best hand at the table needed no help at
+  all; beats seat 2's post-discard pair and two high-card stand-pat hands;
+  wins the full 40000 pot.
+- **hand 31** — four-way all-in preflop; seat 2 discards four cards and
+  rivers two pair (kings and tens) to beat seat 1's and seat 3's stand-pat
+  pairs of eights and seat 0's discard-three pair of sevens; wins the full
+  40000 pot.
+- **hand 146** — three-way all-in preflop (one seat folds); seat 2 is
+  dealt a straight outright (`9s 7d 8c Tc 6s`, six-to-ten) and stands pat;
+  seat 0 discards its entire hand on the draw and still only manages a
+  pair of nines, while seat 3 stands pat with a pair of queens; seat 2's
+  dealt straight needs no help and wins 30050.
+- **hand 163** — four-way all-in preflop; seat 3 is dealt a straight
+  outright (`8h 5h 7d 4d 6s`, four-to-eight) and stands pat, beating seat
+  1's dealt two pair (kings and queens, also stood pat) and two high-card
+  hands; wins the full 40000 pot.
