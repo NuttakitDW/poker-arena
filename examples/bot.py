@@ -6,7 +6,7 @@ Reads arena messages from stdin, writes bot messages to stdout — run it with:
     poker-arena run --game holdem-nl \
         --bot cmd:"python3 examples/bot.py" --bot builtin:random
 
-Protocol reference: docs/wire-protocol.md. The strategy here is simple but
+Protocol reference: WIRE_PROTOCOL.md. The strategy here is simple but
 legal: check when free, call small bets, raise the minimum with strong-ish
 preflop holdings. Replace `decide()` with your own brain.
 """

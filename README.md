@@ -40,7 +40,7 @@ model already covers them).
 ## Out-of-process bots (any language)
 
 Bots can compete as separate processes speaking a JSON-lines protocol —
-see [docs/wire-protocol.md](docs/wire-protocol.md) for the full v1 spec and
+see [WIRE_PROTOCOL.md](WIRE_PROTOCOL.md) for the full v1 spec and
 [examples/bot.py](examples/bot.py) for a dependency-free Python reference:
 
 ```sh

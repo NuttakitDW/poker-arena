@@ -1,6 +1,6 @@
 //! Out-of-process bots: the arena side of the wire protocol.
 //!
-//! [`WireBot`] adapts a bot speaking `docs/wire-protocol.md` over a byte
+//! [`WireBot`] adapts a bot speaking `WIRE_PROTOCOL.md` over a byte
 //! stream to the in-process [`Bot`] trait, so [`crate::runner::run_match`]
 //! never learns the difference. Two transports ship here — a TCP listener
 //! ([`WireBot::listen_tcp`]) and a spawned subprocess talking over its stdio
@@ -47,7 +47,7 @@ pub enum WireBotError {
     BadJoin(String),
 }
 
-/// Longest name a bot may claim in its `join` (see `docs/wire-protocol.md`).
+/// Longest name a bot may claim in its `join` (see `WIRE_PROTOCOL.md`).
 const MAX_NAME_CHARS: usize = 32;
 
 /// A bot that lives behind a byte stream: a socket peer or a child process.
@@ -279,7 +279,7 @@ impl WireBot {
     }
 }
 
-/// Validate a joined name per `docs/wire-protocol.md`: 1–32 characters after
+/// Validate a joined name per `WIRE_PROTOCOL.md`: 1–32 characters after
 /// trimming, no control characters.
 fn validate_name(raw: &str) -> Result<String, WireBotError> {
     let name = raw.trim();

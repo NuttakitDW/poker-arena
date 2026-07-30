@@ -17,7 +17,7 @@
 //!   breaking wire change.
 //!
 //! Full protocol documentation for bot authors (any language) lives in
-//! `docs/wire-protocol.md` at the workspace root.
+//! `WIRE_PROTOCOL.md` at the workspace root.
 
 pub mod framing;
 pub mod message;
