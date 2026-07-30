@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -12,8 +13,10 @@ use poker_arena::Bot;
 use poker_arena::builtin::{Caller, Folder, Random, Shover};
 use poker_arena::config::{DealingMode, FaultPolicy, MatchConfig};
 use poker_arena::log::{EventSink, JsonLog};
+use poker_arena::remote::WireBot;
 use poker_arena::runner::{Progress, run_match};
 use poker_core::game::{GameSpec, Stakes};
+use poker_wire::message::{ArenaMsg, GameInfo};
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -84,9 +87,15 @@ struct RunArgs {
     #[arg(long, value_enum, default_value = "check-fold")]
     fault_policy: FaultPolicyArg,
 
+    /// Per-action deadline in milliseconds (0 = no deadline). Enforced as a
+    /// hard deadline for wire bots; in-process bots are not preemptible.
+    #[arg(long, default_value_t = 1000)]
+    timeout_ms: u64,
+
     /// A competitor: `builtin:folder` | `builtin:caller` | `builtin:shover`
-    /// | `builtin:random[:seed]`. Repeat once per seat (count must fit the
-    /// game's seat range). `tcp:`/`cmd:` bots arrive in M2.
+    /// | `builtin:random[:seed]` | `tcp:PORT` (wait for a bot to connect on
+    /// 127.0.0.1:PORT) | `cmd:COMMAND` (spawn a bot and talk over its stdio).
+    /// Repeat once per seat (count must fit the game's seat range).
     #[arg(long = "bot")]
     bots: Vec<String>,
 
@@ -143,8 +152,18 @@ fn print_games() {
     }
 }
 
-/// A `--bot` spec, parsed but not yet named (naming happens after every
-/// `--bot` is parsed, since duplicate base names get `-2`, `-3`… suffixes).
+/// A parsed `--bot` spec. Nothing is named or connected yet: naming happens
+/// once every spec is known (duplicate base names get `-2`, `-3`… suffixes),
+/// and a wire bot's base name only exists after it has joined.
+enum BotSpec {
+    Builtin(BuiltinKind),
+    /// Wait for a bot to connect on `127.0.0.1:PORT`.
+    Tcp(u16),
+    /// Spawn a bot process and talk over its stdio.
+    Cmd(String),
+}
+
+/// A builtin kind.
 enum BuiltinKind {
     Folder,
     Caller,
@@ -174,9 +193,18 @@ impl BuiltinKind {
     }
 }
 
-fn parse_bot_kind(spec: &str) -> Result<BuiltinKind, String> {
-    if spec.starts_with("tcp:") || spec.starts_with("cmd:") {
-        return Err("wire bots arrive in M2".to_string());
+fn parse_bot_spec(spec: &str) -> Result<BotSpec, String> {
+    if let Some(port) = spec.strip_prefix("tcp:") {
+        let port = port
+            .parse::<u16>()
+            .map_err(|_| format!("invalid port {port:?} in --bot {spec:?}"))?;
+        return Ok(BotSpec::Tcp(port));
+    }
+    if let Some(command) = spec.strip_prefix("cmd:") {
+        if command.trim().is_empty() {
+            return Err(format!("empty command in --bot {spec:?}"));
+        }
+        return Ok(BotSpec::Cmd(command.to_string()));
     }
     let Some(rest) = spec.strip_prefix("builtin:") else {
         return Err(format!(
@@ -187,9 +215,9 @@ fn parse_bot_kind(spec: &str) -> Result<BuiltinKind, String> {
     let name = parts.next().unwrap_or("");
     let arg = parts.next();
     match name {
-        "folder" => Ok(BuiltinKind::Folder),
-        "caller" => Ok(BuiltinKind::Caller),
-        "shover" => Ok(BuiltinKind::Shover),
+        "folder" => Ok(BotSpec::Builtin(BuiltinKind::Folder)),
+        "caller" => Ok(BotSpec::Builtin(BuiltinKind::Caller)),
+        "shover" => Ok(BotSpec::Builtin(BuiltinKind::Shover)),
         "random" => {
             let seed = arg
                 .map(|s| {
@@ -197,7 +225,7 @@ fn parse_bot_kind(spec: &str) -> Result<BuiltinKind, String> {
                         .map_err(|_| format!("invalid seed {s:?} in --bot {spec:?}"))
                 })
                 .transpose()?;
-            Ok(BuiltinKind::Random(seed))
+            Ok(BotSpec::Builtin(BuiltinKind::Random(seed)))
         }
         other => Err(format!(
             "unknown builtin bot {other:?} in --bot {spec:?} (expected folder/caller/shover/random)"
@@ -205,23 +233,83 @@ fn parse_bot_kind(spec: &str) -> Result<BuiltinKind, String> {
     }
 }
 
-/// Builds bots from parsed specs, disambiguating duplicate names with
-/// `-2`, `-3`… suffixes (per-kind, in `--bot` order).
-fn build_bots(kinds: Vec<BuiltinKind>) -> Vec<Box<dyn Bot>> {
-    let mut seen: HashMap<&'static str, u32> = HashMap::new();
-    kinds
+/// A bot that exists but isn't named yet.
+enum Pending {
+    Builtin(BuiltinKind),
+    Wire(WireBot),
+}
+
+/// Connects/spawns every wire bot (sequentially, in `--bot` order, so the
+/// order connections are expected in is predictable) and names the whole
+/// field, disambiguating duplicates with `-2`, `-3`… suffixes.
+///
+/// A wire bot's base name is the one it gave in its `join`, so the same
+/// disambiguation covers builtin and wire bots alike.
+fn build_bots(
+    specs: Vec<BotSpec>,
+    hello: &ArenaMsg,
+    timeout: Option<Duration>,
+) -> Result<Vec<Box<dyn Bot>>, String> {
+    // A bot that has to be started (or a human that has to start it) deserves
+    // more slack than a single decision does.
+    let handshake = timeout.unwrap_or_default().max(Duration::from_secs(10));
+
+    let mut pending = Vec::with_capacity(specs.len());
+    for spec in specs {
+        pending.push(match spec {
+            BotSpec::Builtin(kind) => Pending::Builtin(kind),
+            BotSpec::Tcp(port) => {
+                eprintln!("waiting for a bot on 127.0.0.1:{port} ...");
+                let mut bot = WireBot::listen_tcp(port, hello.clone(), handshake)
+                    .map_err(|e| e.to_string())?;
+                bot.set_timeout(timeout);
+                Pending::Wire(bot)
+            }
+            BotSpec::Cmd(command) => {
+                let mut bot = WireBot::spawn_cmd(&command, hello.clone(), handshake)
+                    .map_err(|e| e.to_string())?;
+                bot.set_timeout(timeout);
+                Pending::Wire(bot)
+            }
+        });
+    }
+
+    let base_names: Vec<String> = pending
+        .iter()
+        .map(|p| match p {
+            Pending::Builtin(kind) => kind.base_name().to_string(),
+            Pending::Wire(bot) => bot.name().to_string(),
+        })
+        .collect();
+
+    Ok(pending
         .into_iter()
+        .zip(disambiguate(&base_names))
         .enumerate()
-        .map(|(i, kind)| {
-            let base = kind.base_name();
-            let count = seen.entry(base).or_insert(0);
+        .map(|(i, (p, name))| match p {
+            Pending::Builtin(kind) => kind.build(name, i),
+            Pending::Wire(mut bot) => {
+                bot.set_name(name);
+                Box::new(bot) as Box<dyn Bot>
+            }
+        })
+        .collect())
+}
+
+/// Names in `--bot` order, with the second and later use of a base name
+/// suffixed `-2`, `-3`, …
+fn disambiguate(base_names: &[String]) -> Vec<String> {
+    let mut seen: HashMap<&str, u32> = HashMap::new();
+    base_names
+        .iter()
+        .map(|base| {
+            let count = seen.entry(base.as_str()).or_insert(0);
             *count += 1;
-            let name = if *count == 1 {
-                base.to_string()
+            if *count == 1 {
+                base.clone()
             } else {
                 format!("{base}-{count}")
-            };
-            kind.build(name, i)
+            }
         })
         .collect()
 }
@@ -245,21 +333,35 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
         ));
     }
 
-    let kinds: Vec<BuiltinKind> = args
+    let specs: Vec<BotSpec> = args
         .bots
         .iter()
-        .map(|s| parse_bot_kind(s))
+        .map(|s| parse_bot_spec(s))
         .collect::<Result<_, _>>()?;
-    let mut bots = build_bots(kinds);
+
+    let timeout = (args.timeout_ms > 0).then(|| Duration::from_millis(args.timeout_ms));
+    let starting_stack = args.stack_bb * args.bb;
+    let hello = ArenaMsg::Hello {
+        proto: poker_wire::PROTO_VERSION,
+        game: GameInfo {
+            id: spec.id.to_string(),
+            display_name: spec.display_name.to_string(),
+            stakes,
+        },
+        seat_count: args.bots.len(),
+        starting_stack,
+        timeout_ms: timeout.map(|d| d.as_millis() as u64),
+    };
+    let mut bots = build_bots(specs, &hello, timeout)?;
 
     let config = MatchConfig {
         spec,
         decks: args.hands,
         seed: args.seed,
         dealing: args.dealing.into(),
-        starting_stack: args.stack_bb * args.bb,
+        starting_stack,
         fault_policy: args.fault_policy.into(),
-        timeout: None,
+        timeout,
     };
 
     let mut log_writer = match &args.log {

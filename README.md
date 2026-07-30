@@ -33,9 +33,28 @@ List supported games:
 cargo run --release -p poker-arena -- games
 ```
 
-Currently registered: `holdem-nl`, `holdem-fl` (Omaha, stud, and draw
-families arrive in later milestones — the engine's variant model already
-covers them).
+Currently registered: `holdem-nl`, `holdem-fl`, `omaha-pl`, `omaha8-pl`,
+`omaha8-fl` (stud and draw families arrive in M3 — the engine's variant
+model already covers them).
+
+## Out-of-process bots (any language)
+
+Bots can compete as separate processes speaking a JSON-lines protocol —
+see [docs/wire-protocol.md](docs/wire-protocol.md) for the full v1 spec and
+[examples/bot.py](examples/bot.py) for a dependency-free Python reference:
+
+```sh
+cargo run --release -p poker-arena -- run \
+  --game holdem-nl \
+  --bot cmd:"python3 examples/bot.py" \
+  --bot builtin:random \
+  --timeout-ms 1000
+```
+
+`cmd:"COMMAND"` spawns the bot and talks over its stdio; `tcp:PORT` listens
+on 127.0.0.1 and waits for the bot to connect. Per-action deadlines are
+enforced server-side (`--timeout-ms`, 0 = none); timeouts, disconnects, and
+malformed replies are faults handled by the configured fault policy.
 
 ## Writing a bot (in-process)
 
@@ -77,8 +96,13 @@ TCP or stdio) arrive with the wire protocol in M2.
 
 ## Status
 
-Milestone M1 (heads-up ↔ 9-max hold'em NL/FL, builtin bots, CLI, stats) —
-in progress. M2 adds the wire protocol, Omaha, and pot-limit games to the
-registry; M3 adds stud and draw families. All engine rules are covered by
-scripted-hand fixtures and seeded property tests (chip conservation,
-legality soundness, determinism).
+- **M1 — done.** Heads-up ↔ 9-max hold'em (NL/FL), builtin bots, duplicate
+  dealing, BB/100 ± 95% CI, CLI, hand-history logs.
+- **M2 — done.** Wire protocol v1 (TCP + subprocess stdio, any language),
+  per-action deadlines and fault handling, Omaha / Omaha hi-lo with
+  pot-limit betting.
+- **M3 — next.** Stud family (stud, stud8, razz), draw family (triple draw,
+  badugi), behavioral stats (VPIP, aggression, showdown%).
+
+All engine rules are covered by scripted-hand fixtures and seeded property
+tests (chip conservation, legality soundness, determinism).
