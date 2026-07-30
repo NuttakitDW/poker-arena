@@ -54,10 +54,25 @@ pub struct HandEnd {
     pub nets: Vec<i64>,
 }
 
+/// A failure to produce an action at all — the transport-level counterpart
+/// of returning an illegal action. Both are "faults" to the arena and are
+/// handled by the configured [`crate::config::FaultPolicy`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BotFault {
+    /// No answer within the configured deadline.
+    Timeout,
+    /// The bot's transport is gone (socket closed, process exited).
+    Disconnected,
+    /// The bot answered with something that isn't a well-formed action.
+    Protocol(String),
+}
+
 /// A poker bot. Implementations must be `Send` (matches may run off-thread).
 ///
-/// `act` must return an action conforming to `req.legal`; anything else is a
-/// fault handled by the arena's fault policy (it is never silently patched).
+/// `act` must return an action conforming to `req.legal`; a non-conforming
+/// action or an `Err` is a fault handled by the arena's fault policy (it is
+/// never silently patched). In-process bots normally always return `Ok`;
+/// `Err` exists for transport-backed bots (timeouts, disconnects).
 pub trait Bot: Send {
     /// Stable display name (used in reports; uniqueness enforced by the CLI).
     fn name(&self) -> &str;
@@ -67,7 +82,7 @@ pub trait Bot: Send {
     /// An observable event, already redacted for this bot's seat.
     fn event(&mut self, _event: &Event) {}
 
-    fn act(&mut self, req: &ActionRequest<'_>) -> Action;
+    fn act(&mut self, req: &ActionRequest<'_>) -> Result<Action, BotFault>;
 
     fn hand_end(&mut self, _result: &HandEnd) {}
 }

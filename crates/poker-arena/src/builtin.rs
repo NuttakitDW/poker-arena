@@ -5,7 +5,7 @@
 use poker_core::game::{Action, BetBounds};
 use poker_core::rng::Rng64;
 
-use crate::bot::{ActionRequest, Bot};
+use crate::bot::{ActionRequest, Bot, BotFault};
 
 /// Checks when free, folds when facing a bet.
 pub struct Folder {
@@ -23,12 +23,12 @@ impl Bot for Folder {
         &self.name
     }
 
-    fn act(&mut self, req: &ActionRequest<'_>) -> Action {
-        if req.legal.check {
+    fn act(&mut self, req: &ActionRequest<'_>) -> Result<Action, BotFault> {
+        Ok(if req.legal.check {
             Action::Check
         } else {
             Action::Fold
-        }
+        })
     }
 }
 
@@ -48,12 +48,12 @@ impl Bot for Caller {
         &self.name
     }
 
-    fn act(&mut self, req: &ActionRequest<'_>) -> Action {
-        if req.legal.check {
+    fn act(&mut self, req: &ActionRequest<'_>) -> Result<Action, BotFault> {
+        Ok(if req.legal.check {
             Action::Check
         } else {
             Action::Call
-        }
+        })
     }
 }
 
@@ -74,11 +74,11 @@ impl Bot for Shover {
         &self.name
     }
 
-    fn act(&mut self, req: &ActionRequest<'_>) -> Action {
+    fn act(&mut self, req: &ActionRequest<'_>) -> Result<Action, BotFault> {
         // Betting streets offer at most one of `bet`/`raise` per decision
         // (never/facing-a-wager are mutually exclusive), so checking both is
         // just defensive.
-        if let Some(bounds) = req.legal.raise {
+        Ok(if let Some(bounds) = req.legal.raise {
             Action::Raise { to: bounds.max_to }
         } else if let Some(bounds) = req.legal.bet {
             Action::Bet { to: bounds.max_to }
@@ -86,7 +86,7 @@ impl Bot for Shover {
             Action::Call
         } else {
             Action::Check
-        }
+        })
     }
 }
 
@@ -123,7 +123,7 @@ impl Bot for Random {
         &self.name
     }
 
-    fn act(&mut self, req: &ActionRequest<'_>) -> Action {
+    fn act(&mut self, req: &ActionRequest<'_>) -> Result<Action, BotFault> {
         let legal = req.legal;
         let mut choices = Vec::with_capacity(5);
         if legal.check {
@@ -144,7 +144,7 @@ impl Bot for Random {
 
         // Contract: `legal` always offers at least one family.
         let idx = self.rng.below(choices.len() as u64) as usize;
-        match choices.swap_remove(idx) {
+        Ok(match choices.swap_remove(idx) {
             Choice::Check => Action::Check,
             Choice::Call => Action::Call,
             Choice::Fold => Action::Fold,
@@ -154,7 +154,7 @@ impl Bot for Random {
             Choice::Raise(bounds) => Action::Raise {
                 to: self.uniform_to(bounds),
             },
-        }
+        })
     }
 }
 
@@ -280,14 +280,14 @@ mod tests {
     fn folder_checks_when_free() {
         let scenario = Scenario::new(free_check());
         let mut bot = Folder::new("folder");
-        assert_eq!(bot.act(&scenario.request()), Action::Check);
+        assert_eq!(bot.act(&scenario.request()).unwrap(), Action::Check);
     }
 
     #[test]
     fn folder_folds_when_facing_bet() {
         let scenario = Scenario::new(facing_bet());
         let mut bot = Folder::new("folder");
-        assert_eq!(bot.act(&scenario.request()), Action::Fold);
+        assert_eq!(bot.act(&scenario.request()).unwrap(), Action::Fold);
     }
 
     // ---- Caller ----
@@ -296,14 +296,14 @@ mod tests {
     fn caller_checks_when_free() {
         let scenario = Scenario::new(free_check());
         let mut bot = Caller::new("caller");
-        assert_eq!(bot.act(&scenario.request()), Action::Check);
+        assert_eq!(bot.act(&scenario.request()).unwrap(), Action::Check);
     }
 
     #[test]
     fn caller_calls_when_facing_bet() {
         let scenario = Scenario::new(facing_bet());
         let mut bot = Caller::new("caller");
-        assert_eq!(bot.act(&scenario.request()), Action::Call);
+        assert_eq!(bot.act(&scenario.request()).unwrap(), Action::Call);
     }
 
     // ---- Shover ----
@@ -312,21 +312,30 @@ mod tests {
     fn shover_raises_to_max_when_facing_bet() {
         let scenario = Scenario::new(facing_bet());
         let mut bot = Shover::new("shover");
-        assert_eq!(bot.act(&scenario.request()), Action::Raise { to: 1000 });
+        assert_eq!(
+            bot.act(&scenario.request()).unwrap(),
+            Action::Raise { to: 1000 }
+        );
     }
 
     #[test]
     fn shover_bets_to_max_when_bet_available() {
         let scenario = Scenario::new(bet_available_only());
         let mut bot = Shover::new("shover");
-        assert_eq!(bot.act(&scenario.request()), Action::Bet { to: 500 });
+        assert_eq!(
+            bot.act(&scenario.request()).unwrap(),
+            Action::Bet { to: 500 }
+        );
     }
 
     #[test]
     fn shover_handles_min_eq_max_short_allin_raise() {
         let scenario = Scenario::new(raise_capped());
         let mut bot = Shover::new("shover");
-        assert_eq!(bot.act(&scenario.request()), Action::Raise { to: 45 });
+        assert_eq!(
+            bot.act(&scenario.request()).unwrap(),
+            Action::Raise { to: 45 }
+        );
     }
 
     #[test]
@@ -342,7 +351,7 @@ mod tests {
         };
         let scenario = Scenario::new(legal);
         let mut bot = Shover::new("shover");
-        assert_eq!(bot.act(&scenario.request()), Action::Call);
+        assert_eq!(bot.act(&scenario.request()).unwrap(), Action::Call);
     }
 
     #[test]
@@ -358,7 +367,7 @@ mod tests {
         };
         let scenario = Scenario::new(legal);
         let mut bot = Shover::new("shover");
-        assert_eq!(bot.act(&scenario.request()), Action::Check);
+        assert_eq!(bot.act(&scenario.request()).unwrap(), Action::Check);
     }
 
     // ---- Random ----
@@ -396,7 +405,7 @@ mod tests {
             let mut bot = Random::new("random", 42);
             scenarios
                 .iter()
-                .map(|s| bot.act(&s.request()))
+                .map(|s| bot.act(&s.request()).unwrap())
                 .collect::<Vec<_>>()
         };
         assert_eq!(run(), run());
@@ -412,7 +421,7 @@ mod tests {
         let mut saw_raise = false;
 
         for _ in 0..2000 {
-            match bot.act(&scenario.request()) {
+            match bot.act(&scenario.request()).unwrap() {
                 Action::Check => saw_check = true,
                 Action::Call => saw_call = true,
                 Action::Fold => saw_fold = true,
@@ -436,7 +445,7 @@ mod tests {
         let mut bot = Random::new("random", 99);
         let scenario = Scenario::new(bet_available_only());
         for _ in 0..500 {
-            match bot.act(&scenario.request()) {
+            match bot.act(&scenario.request()).unwrap() {
                 Action::Check => {}
                 Action::Bet { to } => assert!((20..=500).contains(&to)),
                 other => panic!("unexpected action: {other:?}"),
@@ -449,7 +458,7 @@ mod tests {
         let mut bot = Random::new("random", 3);
         let scenario = Scenario::new(raise_capped());
         for _ in 0..200 {
-            match bot.act(&scenario.request()) {
+            match bot.act(&scenario.request()).unwrap() {
                 Action::Fold | Action::Call => {}
                 Action::Raise { to } => assert_eq!(to, 45),
                 other => panic!("unexpected action: {other:?}"),

@@ -197,18 +197,80 @@ impl GameSpec {
         }
     }
 
+    /// Pot-limit Omaha (high only).
+    pub fn omaha_pl(stakes: Stakes) -> GameSpec {
+        GameSpec {
+            id: "omaha-pl",
+            display_name: "Pot-Limit Omaha",
+            betting: BettingKind::PotLimit,
+            ..Self::omaha_base(stakes)
+        }
+    }
+
+    /// Pot-limit Omaha hi-lo, eight or better.
+    pub fn omaha8_pl(stakes: Stakes) -> GameSpec {
+        GameSpec {
+            id: "omaha8-pl",
+            display_name: "Pot-Limit Omaha Hi-Lo (8 or Better)",
+            betting: BettingKind::PotLimit,
+            showdown: Self::omaha8_showdown(),
+            ..Self::omaha_base(stakes)
+        }
+    }
+
+    /// Fixed-limit Omaha hi-lo, eight or better.
+    pub fn omaha8_fl(stakes: Stakes) -> GameSpec {
+        GameSpec {
+            id: "omaha8-fl",
+            display_name: "Fixed-Limit Omaha Hi-Lo (8 or Better)",
+            betting: BettingKind::FixedLimit { raise_cap: Some(4) },
+            showdown: Self::omaha8_showdown(),
+            ..Self::omaha_base(stakes)
+        }
+    }
+
+    /// Omaha differs from hold'em only in hole-card count and the
+    /// exactly-two showdown constraint; streets and blinds are identical.
+    fn omaha_base(stakes: Stakes) -> GameSpec {
+        let mut spec = Self::holdem_base(stakes);
+        spec.id = "omaha";
+        spec.display_name = "Omaha";
+        spec.streets[0].deal = DealSpec::HolePrivate(4);
+        spec.showdown.hole_usage = HoleUsage::ExactlyTwo;
+        spec
+    }
+
+    fn omaha8_showdown() -> ShowdownSpec {
+        ShowdownSpec {
+            pot_split: PotSplit::HiLo {
+                hi: EvalKind::High,
+                lo: EvalKind::EightOrBetterLow,
+            },
+            hole_usage: HoleUsage::ExactlyTwo,
+        }
+    }
+
     /// Look up a variant by registry id.
     pub fn by_id(id: &str, stakes: Stakes) -> Option<GameSpec> {
         match id {
             "holdem-nl" => Some(Self::holdem_nl(stakes)),
             "holdem-fl" => Some(Self::holdem_fl(stakes)),
+            "omaha-pl" => Some(Self::omaha_pl(stakes)),
+            "omaha8-pl" => Some(Self::omaha8_pl(stakes)),
+            "omaha8-fl" => Some(Self::omaha8_fl(stakes)),
             _ => None,
         }
     }
 
     /// All registry ids, for CLI listings.
     pub fn known_ids() -> &'static [&'static str] {
-        &["holdem-nl", "holdem-fl"]
+        &[
+            "holdem-nl",
+            "holdem-fl",
+            "omaha-pl",
+            "omaha8-pl",
+            "omaha8-fl",
+        ]
     }
 
     /// Fixed-limit bet size for a tier under these stakes.

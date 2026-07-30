@@ -42,7 +42,7 @@ covers them).
 Implement the `Bot` trait from the `poker-arena` crate:
 
 ```rust
-use poker_arena::bot::{ActionRequest, Bot};
+use poker_arena::bot::{ActionRequest, Bot, BotFault};
 use poker_core::game::Action;
 
 struct MyBot;
@@ -50,9 +50,9 @@ struct MyBot;
 impl Bot for MyBot {
     fn name(&self) -> &str { "my-bot" }
 
-    fn act(&mut self, req: &ActionRequest<'_>) -> Action {
+    fn act(&mut self, req: &ActionRequest<'_>) -> Result<Action, BotFault> {
         // req.legal describes exactly what is allowed right now.
-        if req.legal.check { Action::Check } else { Action::Fold }
+        Ok(if req.legal.check { Action::Check } else { Action::Fold })
     }
 }
 ```

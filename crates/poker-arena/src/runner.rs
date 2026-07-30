@@ -278,9 +278,14 @@ fn play_hand(
         };
         let action = bots[bot].act(&req);
 
-        let events = match state.apply(action) {
+        // A transport fault (Err) and an action the engine rejects are the
+        // same thing to the arena: a fault, handled per policy.
+        let applied = action
+            .map_err(|_| ())
+            .and_then(|a| state.apply(a).map_err(|_| ()));
+        let events = match applied {
             Ok(events) => events,
-            Err(_) => {
+            Err(()) => {
                 faults[bot] += 1;
                 match config.fault_policy {
                     FaultPolicy::CheckFold => {
@@ -470,8 +475,8 @@ mod tests {
             &self.name
         }
 
-        fn act(&mut self, _req: &ActionRequest<'_>) -> Action {
-            Action::Raise { to: u64::MAX / 2 }
+        fn act(&mut self, _req: &ActionRequest<'_>) -> Result<Action, crate::bot::BotFault> {
+            Ok(Action::Raise { to: u64::MAX / 2 })
         }
     }
 
@@ -530,12 +535,12 @@ mod tests {
         fn hand_start(&mut self, info: &HandStart) {
             self.seats_seen.lock().unwrap().push(info.seat);
         }
-        fn act(&mut self, req: &ActionRequest<'_>) -> Action {
-            if req.legal.check {
+        fn act(&mut self, req: &ActionRequest<'_>) -> Result<Action, crate::bot::BotFault> {
+            Ok(if req.legal.check {
                 Action::Check
             } else {
                 Action::Fold
-            }
+            })
         }
     }
 
