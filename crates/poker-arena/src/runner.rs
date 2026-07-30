@@ -16,6 +16,7 @@ use poker_core::rng::Rng64;
 /// Seed salt separating reshuffle RNG streams from deck-shuffle streams.
 const RESHUFFLE_SALT: u64 = 0x5245_5348_5546_4C31;
 
+use crate::behavior::BehaviorStats;
 use crate::bot::{ActionRequest, Bot, HandEnd, HandStart};
 use crate::config::{DealingMode, FaultPolicy, MatchConfig};
 use crate::log::EventSink;
@@ -58,6 +59,9 @@ pub struct BotOutcome {
     /// module docs on [`crate::config::DealingMode`].
     pub stats: RateStats,
     pub faults: u64,
+    /// This bot's behavioral profile (VPIP/PFR/AF/WTSD/WSD/fold rate)
+    /// accumulated over every completed hand of the match.
+    pub behavior: BehaviorStats,
 }
 
 /// Outcome of a full match.
@@ -132,6 +136,7 @@ pub fn run_match(
     let mut totals = vec![0i64; n];
     let mut stats: Vec<RateStats> = vec![RateStats::new(); n];
     let mut faults = vec![0u64; n];
+    let mut behavior: Vec<BehaviorStats> = vec![BehaviorStats::new(); n];
 
     let mut hand_no: u64 = 0;
     let mut hands_played: u64 = 0;
@@ -171,6 +176,7 @@ pub fn run_match(
             for b in 0..n {
                 totals[b] += outcome.nets[b];
                 deck_net_sum[b] += outcome.nets[b];
+                behavior[b].record_hand(&outcome.events, seat_of_bot(n, r, b), outcome.nets[b]);
             }
             if config.dealing == DealingMode::Seeded {
                 for (bot_stats, &net) in stats.iter_mut().zip(&outcome.nets) {
@@ -200,6 +206,7 @@ pub fn run_match(
             total_net_chips: totals[b],
             stats: stats[b].clone(),
             faults: faults[b],
+            behavior: behavior[b].clone(),
         })
         .collect();
 
@@ -217,6 +224,12 @@ struct HandOutcome {
     /// `forfeited_by.is_some()`.
     nets: Vec<i64>,
     forfeited_by: Option<usize>,
+    /// The hand's full unredacted event stream, in order; empty when
+    /// `forfeited_by.is_some()` (a forfeited hand has no settled behavior to
+    /// record). Owned here rather than cloned again for behavioral
+    /// accumulation — it's built by moving the same `Vec<Event>`s already
+    /// produced for `deliver_events`, not by copying them a second time.
+    events: Vec<Event>,
 }
 
 /// Seat occupied by `bot` under rotation `r` (`n` seats total).
@@ -246,6 +259,10 @@ fn play_hand(
     // it never collides with the deck-shuffle streams.
     let reshuffle_rng = Rng64::from_seed_stream(config.seed ^ RESHUFFLE_SALT, hand_no);
     let (mut state, ev0) = HandState::new(&config.spec, &stacks, 0, hand_no, deck, reshuffle_rng)?;
+    // Accumulates the hand's unredacted stream for `HandOutcome::events`,
+    // built by moving each batch already produced for `deliver_events`
+    // rather than cloning it a second time.
+    let mut hand_events: Vec<Event> = Vec::new();
 
     if let Some(s) = sink {
         s.hand_start(hand_no);
@@ -260,6 +277,7 @@ fn play_hand(
         });
     }
     deliver_events(&ev0, n, r, bots, sink);
+    hand_events.extend(ev0);
 
     let mut forfeited_by = None;
     while let Some(seat) = state.to_act() {
@@ -312,12 +330,14 @@ fn play_hand(
             }
         };
         deliver_events(&events, n, r, bots, sink);
+        hand_events.extend(events);
     }
 
     if let Some(offender) = forfeited_by {
         return Ok(HandOutcome {
             nets: vec![0; n],
             forfeited_by: Some(offender),
+            events: Vec::new(),
         });
     }
 
@@ -342,6 +362,7 @@ fn play_hand(
     Ok(HandOutcome {
         nets,
         forfeited_by: None,
+        events: hand_events,
     })
 }
 
@@ -566,6 +587,47 @@ mod tests {
 
         let seen = seats_seen.lock().unwrap().clone();
         assert_eq!(seen, vec![0, 1, 0, 1]);
+    }
+
+    // ---- (f) behavior stats ----
+
+    #[test]
+    fn behavior_stats_reflect_bot_strategies_over_a_match() {
+        // Caller never folds and never bets/raises; Folder folds whenever it
+        // faces a wager and never calls one. Heads-up under Duplicate
+        // dealing seats each bot as both SB and BB across the match, so
+        // Folder is forced to fold-from-the-blind roughly half the time
+        // (facing the SB->BB gap) while Caller, seated the other half,
+        // simply calls it — neither bot ever bets, so every hand checks down
+        // once blinds are matched.
+        let decks = 5;
+        let config = nl_config(decks, 42, DealingMode::Duplicate, FaultPolicy::CheckFold);
+        let mut bots: Vec<Box<dyn Bot>> = vec![
+            Box::new(Caller::new("caller")),
+            Box::new(Folder::new("folder")),
+        ];
+        let result = run_match(&config, &mut bots, None, None).unwrap();
+
+        assert_eq!(result.hands_played, decks * 2);
+        for o in &result.outcomes {
+            assert_eq!(o.behavior.hands(), result.hands_played);
+        }
+
+        let caller = &result.outcomes[0];
+        let folder = &result.outcomes[1];
+        assert_eq!(caller.name, "caller");
+        assert_eq!(folder.name, "folder");
+
+        assert_eq!(caller.behavior.fold_rate(), 0.0, "caller never folds");
+        assert_eq!(
+            folder.behavior.vpip(),
+            0.0,
+            "folder never voluntarily pays in — it checks or folds"
+        );
+        assert!(
+            folder.behavior.fold_rate() > 0.0,
+            "folder must fold from the blinds at least once"
+        );
     }
 
     // ---- error paths ----

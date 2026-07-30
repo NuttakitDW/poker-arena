@@ -8,9 +8,7 @@
 //! # Rules contract (the implementation spec)
 //!
 //! ## Setup (`new`)
-//! - Validates seat count against the spec, stacks all positive, and (M1)
-//!   rejects specs using M3 features (`BringIn`, `HoleUp`, `Draw`,
-//!   `ByUpcards`) with `HandError::Unsupported`.
+//! - Validates seat count against the spec and that stacks are all positive.
 //! - Emits `HandStart`, posts forced bets (heads-up: the **button posts the
 //!   small blind** and acts first preflop), deals street 0, emits
 //!   `StreetStart`/`DealHole` events, and opens street 0's betting round.
@@ -148,7 +146,7 @@
 //! - No card is ever simultaneously in two live hands / the board (reshuffle
 //!   only recycles dead discards).
 
-use super::action::{Action, BetBounds, Chips, LegalActions, Seat};
+use super::action::{Action, BetBounds, Chips, DrawBounds, LegalActions, Seat};
 use super::event::{Event, PostKind, PotSide};
 use super::pot::{PotAward, ShowdownEntry, award_pots, build_pots};
 use super::spec::{BettingKind, DealSpec, FirstToAct, ForcedBets, GameSpec, PotSplit};
@@ -191,6 +189,16 @@ pub struct Settlement {
     pub showdown_seats: Vec<Seat>,
 }
 
+/// What kind of decision the current street is asking for. Draw streets run
+/// a discard phase before their betting round; everything else — including
+/// the stud bring-in decision, which is a betting action — is `Betting`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum Phase {
+    Betting,
+    /// `to_act` is the next seat to discard, not to wager.
+    Drawing,
+}
+
 /// State of one hand in progress. See module docs for the full rules
 /// contract. Construction deals street 0; drive it with `to_act` /
 /// `legal_actions` / `apply` until `is_over`.
@@ -203,9 +211,14 @@ pub struct HandState {
     /// Used only when a draw street exhausts the deck and the discard pile
     /// must be reshuffled; deterministic because callers derive it from the
     /// match seed.
-    #[allow(dead_code)] // consumed once draw streets land (M3 engine work)
     rng: Rng64,
+    /// Down cards. For stud this is *only* the face-down cards; showdown
+    /// concatenates `up`.
     hole: Vec<Vec<Card>>,
+    /// Face-up cards per seat (stud); empty for every other family.
+    up: Vec<Vec<Card>>,
+    /// Cards thrown away on draw streets, recycled when the deck runs dry.
+    discards: Vec<Card>,
     board: Vec<Card>,
     /// Starting stack − contributions so far (refunds add back).
     stacks: Vec<Chips>,
@@ -225,8 +238,16 @@ pub struct HandState {
     /// Size of the last full bet/raise this street; also the minimum
     /// opening bet while `current_to == 0`.
     last_raise: Chips,
-    /// Fixed-limit wager count for the current round (cap bookkeeping).
+    /// Fixed-limit wager count for the current round (cap bookkeeping). Also
+    /// doubles as "has a full wager been made this street", which is what
+    /// distinguishes a pending completion from an ordinary raise.
     wagers: u8,
+    phase: Phase,
+    /// The seat to act owes the bring-in decision (post or complete).
+    bring_in_pending: bool,
+    /// Set once the bring-in street has opened, so later stud streets use the
+    /// upcard order instead.
+    bring_in_done: bool,
     to_act: Option<Seat>,
     over: bool,
     settlement: Option<Settlement>,
@@ -255,7 +276,6 @@ impl HandState {
         if stacks.contains(&0) {
             return Err(HandError::BadStacks);
         }
-        check_supported(spec)?;
         // Every later deal must succeed, so size the deck up front: `apply`
         // has no way to report a deck error.
         if deck.remaining() < cards_needed(spec, seats) {
@@ -269,6 +289,8 @@ impl HandState {
             deck,
             rng,
             hole: vec![Vec::new(); seats],
+            up: vec![Vec::new(); seats],
+            discards: Vec::new(),
             board: Vec::new(),
             stacks: stacks.to_vec(),
             contrib: vec![0; seats],
@@ -280,6 +302,9 @@ impl HandState {
             current_to: 0,
             last_raise: spec.stakes.big_blind.max(1),
             wagers: 0,
+            phase: Phase::Betting,
+            bring_in_pending: false,
+            bring_in_done: false,
             to_act: None,
             over: false,
             settlement: None,
@@ -293,7 +318,7 @@ impl HandState {
         }];
         state.post_forced(&mut ev);
         state.deal_street(&mut ev);
-        if !state.open_round() {
+        if !(state.open_draw() || state.open_round()) {
             state.advance(&mut ev);
         }
         state.events.extend_from_slice(&ev);
@@ -308,6 +333,39 @@ impl HandState {
     /// Legal actions for the seat to act; `None` when the hand is over.
     pub fn legal_actions(&self) -> Option<LegalActions> {
         let seat = self.to_act?;
+        match self.phase {
+            Phase::Drawing => {
+                let DealSpec::Draw { max } = self.spec.streets[self.street].deal else {
+                    unreachable!("a draw phase only opens on a draw street")
+                };
+                Some(LegalActions {
+                    draw: Some(DrawBounds { max_discards: max }),
+                    ..LegalActions::default()
+                })
+            }
+            Phase::Betting if self.bring_in_pending => Some(self.bring_in_actions(seat)),
+            Phase::Betting => Some(self.betting_actions(seat)),
+        }
+    }
+
+    /// The bring-in seat may only post or complete — no fold, check or call.
+    fn bring_in_actions(&self, seat: Seat) -> LegalActions {
+        let ForcedBets::BringIn { bring_in, .. } = self.spec.forced_bets else {
+            unreachable!("a bring-in decision implies bring-in forced bets")
+        };
+        let stack = self.stacks[seat];
+        let completion = self.street_tier().min(stack);
+        LegalActions {
+            bring_in: Some(bring_in.min(stack)),
+            bet: Some(BetBounds {
+                min_to: completion,
+                max_to: completion,
+            }),
+            ..LegalActions::default()
+        }
+    }
+
+    fn betting_actions(&self, seat: Seat) -> LegalActions {
         let commit = self.commit[seat];
         let stack = self.stacks[seat];
         let all_in_to = commit + stack;
@@ -323,28 +381,27 @@ impl HandState {
         // Wagering only makes sense while some other seat can still respond.
         let contested = (0..self.seats).any(|s| s != seat && !self.folded[s] && !self.all_in[s]);
         if !contested || all_in_to <= self.current_to {
-            return Some(la);
+            return la;
         }
 
         let opening = self.current_to == 0;
         // A short all-in that did not reopen the action leaves `acted` set,
         // which is precisely who may no longer raise.
         if !opening && self.acted[seat] {
-            return Some(la);
+            return la;
         }
 
-        let tier = self.spec.tier_size(
-            self.spec.streets[self.street]
-                .betting
-                .expect("betting round open")
-                .tier,
-        );
+        let tier = self.street_tier();
         let bounds = match self.spec.betting {
             BettingKind::FixedLimit { raise_cap } => {
                 if raise_cap.is_some_and(|cap| self.wagers >= cap) {
                     None
                 } else {
-                    let to = if opening {
+                    // `wagers == 0` with chips already out means no full
+                    // wager has been made yet — a bring-in, or an all-in
+                    // below half a bet. Either way the price is *completed*
+                    // to the tier rather than raised by it.
+                    let to = if opening || self.wagers == 0 {
                         tier.min(all_in_to)
                     } else {
                         (self.current_to + tier).min(all_in_to)
@@ -381,7 +438,7 @@ impl HandState {
                 la.raise = Some(b);
             }
         }
-        Some(la)
+        la
     }
 
     /// Apply an action for the seat returned by `to_act`, returning every
@@ -394,8 +451,14 @@ impl HandState {
         if let Err(reason) = conforms(&action, &la) {
             return Err(ActionError::Illegal { action, reason });
         }
-        // Everything below this point is infallible: no partial mutation.
         let seat = self.to_act.expect("legal_actions implies a seat to act");
+        if self.phase == Phase::Drawing {
+            let Action::Discard { cards } = action else {
+                unreachable!("the draw phase offers nothing but `Discard`")
+            };
+            return self.apply_discard(seat, cards);
+        }
+        // Everything below this point is infallible: no partial mutation.
         let mut ev = Vec::new();
 
         match action {
@@ -404,6 +467,16 @@ impl HandState {
             Action::Call => {
                 let pay = (self.current_to - self.commit[seat]).min(self.stacks[seat]);
                 self.pay(seat, pay);
+            }
+            Action::BringIn => {
+                let ForcedBets::BringIn { bring_in, .. } = self.spec.forced_bets else {
+                    unreachable!("a bring-in decision implies bring-in forced bets")
+                };
+                self.pay(seat, bring_in.min(self.stacks[seat]));
+                // Nominal, not what was paid: a short all-in bring-in never
+                // lowers the price for anyone else. The bring-in is not a
+                // wager, so `wagers` stays 0 and the cap is untouched.
+                self.current_to = bring_in;
             }
             Action::Bet { to } | Action::Raise { to } => {
                 self.pay(seat, to - self.commit[seat]);
@@ -421,8 +494,9 @@ impl HandState {
                     }
                 }
             }
-            Action::BringIn | Action::Discard { .. } => unreachable!("rejected by `conforms`"),
+            Action::Discard { .. } => unreachable!("rejected by `conforms`"),
         }
+        self.bring_in_pending = false;
         self.acted[seat] = true;
         ev.push(Event::Acted {
             seat,
@@ -456,9 +530,15 @@ impl HandState {
         &self.board
     }
 
-    /// Hole cards of a seat (unredacted — callers redact via events).
+    /// Hole cards of a seat (unredacted — callers redact via events). For
+    /// stud these are the face-down cards only; see [`HandState::upcards`].
     pub fn hole_cards(&self, seat: Seat) -> &[Card] {
         &self.hole[seat]
+    }
+
+    /// Face-up cards per seat (empty vecs for games without upcards).
+    pub fn upcards(&self) -> &[Vec<Card>] {
+        &self.up
     }
 
     /// Current street index and label.
@@ -497,8 +577,8 @@ impl HandState {
     // --- Forced bets & dealing ------------------------------------------
 
     fn post_forced(&mut self, ev: &mut Vec<Event>) {
-        let ForcedBets::Blinds { ante } = self.spec.forced_bets else {
-            unreachable!("non-blind forced bets rejected in new()")
+        let ante = match self.spec.forced_bets {
+            ForcedBets::Blinds { ante } | ForcedBets::BringIn { ante, .. } => ante,
         };
         if ante > 0 {
             for i in 1..=self.seats {
@@ -507,6 +587,8 @@ impl HandState {
                 if amount == 0 {
                     continue;
                 }
+                // Antes buy pot equity, never street commitment: `commit` is
+                // deliberately untouched so call/raise arithmetic ignores them.
                 self.stacks[seat] -= amount;
                 self.contrib[seat] += amount;
                 self.all_in[seat] = self.stacks[seat] == 0;
@@ -517,6 +599,11 @@ impl HandState {
                     all_in: self.all_in[seat],
                 });
             }
+        }
+        if matches!(self.spec.forced_bets, ForcedBets::BringIn { .. }) {
+            // Stud rounds open with no wager and no cap consumed; the
+            // bring-in itself is posted as an action, not here.
+            return;
         }
 
         let (sb_seat, bb_seat) = self.blind_seats();
@@ -584,10 +671,134 @@ impl HandState {
                     cards,
                 });
             }
-            DealSpec::HoleUp(_) | DealSpec::Draw { .. } => {
-                unreachable!("M3 deal specs rejected in new()")
+            DealSpec::HoleUp(count) => {
+                for i in 1..=self.seats {
+                    let seat = (self.button + i) % self.seats;
+                    if self.folded[seat] {
+                        continue;
+                    }
+                    let cards = self
+                        .deck
+                        .draw_n(count as usize)
+                        .expect("deck sized in new()");
+                    self.up[seat].extend_from_slice(&cards);
+                    ev.push(Event::DealUp { seat, cards });
+                }
+            }
+            // Draw streets deal nothing up front: replacements are dealt one
+            // seat at a time during the draw phase (`open_draw`).
+            DealSpec::Draw { .. } => {}
+        }
+    }
+
+    // --- Draw phases ------------------------------------------------------
+
+    /// Opens the draw phase of a draw street. Every non-folded seat draws
+    /// exactly once, all-in seats included, starting left of the button.
+    fn open_draw(&mut self) -> bool {
+        self.phase = Phase::Betting;
+        if !matches!(self.spec.streets[self.street].deal, DealSpec::Draw { .. }) {
+            return false;
+        }
+        let Some(first) = self.odd_chip_order().into_iter().find(|&s| !self.folded[s]) else {
+            return false;
+        };
+        self.phase = Phase::Drawing;
+        self.to_act = Some(first);
+        true
+    }
+
+    /// Next seat owing a draw, or `None` when the phase is done. Nobody can
+    /// fold during a draw phase, so this order is stable while it runs.
+    fn next_drawer(&self, from: Seat) -> Option<Seat> {
+        let order: Vec<Seat> = self
+            .odd_chip_order()
+            .into_iter()
+            .filter(|&s| !self.folded[s])
+            .collect();
+        let pos = order
+            .iter()
+            .position(|&s| s == from)
+            .expect("the drawing seat is never folded");
+        order.get(pos + 1).copied()
+    }
+
+    fn check_discard(&self, seat: Seat, cards: &[Card]) -> Result<(), &'static str> {
+        for (i, card) in cards.iter().enumerate() {
+            if cards[..i].contains(card) {
+                return Err("the same card cannot be discarded twice");
+            }
+            if !self.hole[seat].contains(card) {
+                return Err("cannot discard a card the seat does not hold");
             }
         }
+        Ok(())
+    }
+
+    fn apply_discard(&mut self, seat: Seat, cards: Vec<Card>) -> Result<Vec<Event>, ActionError> {
+        if let Err(reason) = self.check_discard(seat, &cards) {
+            return Err(ActionError::Illegal {
+                action: Action::Discard { cards },
+                reason,
+            });
+        }
+        // Everything below this point is infallible: no partial mutation.
+        for card in &cards {
+            let at = self.hole[seat]
+                .iter()
+                .position(|held| held == card)
+                .expect("validated above");
+            self.hole[seat].remove(at);
+        }
+        let drawn = self.draw_replacements(&cards);
+        self.hole[seat].extend_from_slice(&drawn);
+
+        let mut ev = vec![Event::DrawResult {
+            seat,
+            discarded: cards.len() as u8,
+            drawn,
+        }];
+        match self.next_drawer(seat) {
+            Some(next) => self.to_act = Some(next),
+            None => {
+                self.phase = Phase::Betting;
+                if !self.open_round() {
+                    self.advance(&mut ev);
+                }
+            }
+        }
+        self.events.extend_from_slice(&ev);
+        Ok(ev)
+    }
+
+    /// Deal one replacement per discarded card, then retire the discards.
+    /// When the deck runs dry mid-request the pile of *earlier* discards is
+    /// reshuffled back in, so the drawing seat can never receive a card it
+    /// just threw away — unless nothing else is left anywhere, which no real
+    /// spec can reach (cards in play + deck + discards is always 52).
+    fn draw_replacements(&mut self, discarded: &[Card]) -> Vec<Card> {
+        let mut drawn = Vec::with_capacity(discarded.len());
+        let mut recycled_own = false;
+        while drawn.len() < discarded.len() {
+            if let Some(card) = self.deck.draw() {
+                drawn.push(card);
+                continue;
+            }
+            if self.discards.is_empty() {
+                if recycled_own {
+                    break;
+                }
+                self.discards.extend_from_slice(discarded);
+                recycled_own = true;
+            }
+            let mut pile = core::mem::take(&mut self.discards);
+            self.rng.shuffle(&mut pile);
+            self.deck = Deck::from_deal_order(&pile);
+        }
+        if !recycled_own {
+            self.discards.extend_from_slice(discarded);
+        }
+        drawn
     }
 
     // --- Round bookkeeping ----------------------------------------------
@@ -612,19 +823,22 @@ impl HandState {
         }
     }
 
+    /// Fixed-limit wager size for the street currently open for betting.
+    fn street_tier(&self) -> Chips {
+        self.spec.tier_size(
+            self.spec.streets[self.street]
+                .betting
+                .expect("betting round open")
+                .tier,
+        )
+    }
+
     /// Does a wager of increment `inc` reopen the action (and count toward
-    /// the fixed-limit cap)?
+    /// the fixed-limit cap)? The half-bet rule is what makes a stud
+    /// completion over a bring-in count as the round's first wager.
     fn is_full_wager(&self, inc: Chips) -> bool {
         match self.spec.betting {
-            BettingKind::FixedLimit { .. } => {
-                let tier = self.spec.tier_size(
-                    self.spec.streets[self.street]
-                        .betting
-                        .expect("betting round open")
-                        .tier,
-                );
-                inc * 2 >= tier
-            }
+            BettingKind::FixedLimit { .. } => inc * 2 >= self.street_tier(),
             _ => inc >= self.last_raise,
         }
     }
@@ -673,22 +887,33 @@ impl HandState {
         self.current_to = 0;
         self.last_raise = self.spec.stakes.big_blind.max(1);
         self.wagers = 0;
+        self.phase = Phase::Betting;
+        self.bring_in_pending = false;
     }
 
     /// Sets `to_act` for the current street; `false` when no betting round
     /// runs (no spec'd round, or fewer than two seats can act).
     fn open_round(&mut self) -> bool {
         self.to_act = None;
+        self.bring_in_pending = false;
         let Some(round) = self.spec.streets[self.street].betting else {
             return false;
         };
         if self.active_count() < 2 {
             return false;
         }
+        if !self.bring_in_done && matches!(self.spec.forced_bets, ForcedBets::BringIn { .. }) {
+            self.bring_in_done = true;
+            self.bring_in_pending = true;
+            self.to_act = Some(self.bring_in_seat());
+            return true;
+        }
         let start = match round.first_to_act {
             FirstToAct::AfterBlinds => (self.blind_seats().1 + 1) % self.seats,
             FirstToAct::LeftOfButton => (self.button + 1) % self.seats,
-            FirstToAct::ByUpcards => unreachable!("rejected in new()"),
+            // The leader may be all-in; the loop below then hands the open to
+            // the first actionable seat clockwise from it.
+            FirstToAct::ByUpcards => self.upcard_leader(),
         };
         for i in 0..self.seats {
             let seat = (start + i) % self.seats;
@@ -698,6 +923,51 @@ impl HandState {
             }
         }
         false
+    }
+
+    /// Worst door card posts the bring-in: min by `Card::index` (rank first,
+    /// suit breaking ties) for high games, max for razz. Seats already all-in
+    /// from the ante have no decision to make, so they are not candidates.
+    fn bring_in_seat(&self) -> Seat {
+        let ForcedBets::BringIn { low, .. } = self.spec.forced_bets else {
+            unreachable!("a bring-in street implies bring-in forced bets")
+        };
+        let door = |&s: &Seat| {
+            self.up[s]
+                .last()
+                .expect("the door card is dealt before the bring-in round opens")
+                .index()
+        };
+        let candidates = (0..self.seats).filter(|&s| !self.folded[s] && !self.all_in[s]);
+        if low {
+            candidates.max_by_key(door)
+        } else {
+            candidates.min_by_key(door)
+        }
+        .expect("active_count() >= 2 was checked")
+    }
+
+    /// Seat with the best *showing* hand, ties broken by seat order from
+    /// left of the button. All-in seats still count as leaders.
+    fn upcard_leader(&self) -> Seat {
+        let low = matches!(self.spec.forced_bets, ForcedBets::BringIn { low: true, .. });
+        let mut best: Option<(Vec<u8>, Seat)> = None;
+        for seat in self.odd_chip_order() {
+            if self.folded[seat] {
+                continue;
+            }
+            let key = visible_key(&self.up[seat], low);
+            let better = match &best {
+                None => true,
+                Some((leader, _)) if low => key < *leader,
+                Some((leader, _)) => key > *leader,
+            };
+            if better {
+                best = Some((key, seat));
+            }
+        }
+        best.map(|(_, seat)| seat)
+            .unwrap_or((self.button + 1) % self.seats)
     }
 
     // --- Street advancement, showdown, settlement -------------------------
@@ -718,7 +988,9 @@ impl HandState {
             self.street += 1;
             self.reset_round();
             self.deal_street(ev);
-            if self.open_round() {
+            // Draw phases run even in a run-out: all-in seats still draw to
+            // their final hands, only the betting round is skipped.
+            if self.open_draw() || self.open_round() {
                 return;
             }
         }
@@ -785,12 +1057,15 @@ impl HandState {
             if self.folded[seat] {
                 continue;
             }
-            let hole = &self.hole[seat];
-            let hi = best_with_usage(hi_kind, usage, hole, &self.board);
-            let lo = lo_kind.and_then(|k| best_with_usage(k, usage, hole, &self.board));
+            // Stud shows down all seven: the up cards are part of the hand,
+            // not of a board. Every other family has an empty `up`.
+            let mut hole = self.hole[seat].clone();
+            hole.extend_from_slice(&self.up[seat]);
+            let hi = best_with_usage(hi_kind, usage, &hole, &self.board);
+            let lo = lo_kind.and_then(|k| best_with_usage(k, usage, &hole, &self.board));
             ev.push(Event::ShowdownShow {
                 seat,
-                cards: hole.clone(),
+                cards: hole,
                 hi,
                 lo,
             });
@@ -833,35 +1108,50 @@ impl HandState {
     }
 }
 
-/// M1 supports blind games with private-hole/community deals only.
-fn check_supported(spec: &GameSpec) -> Result<(), HandError> {
-    if matches!(spec.forced_bets, ForcedBets::BringIn { .. }) {
-        return Err(HandError::Unsupported("bring-in forced bets"));
+/// Visible-strength key for a stud upcard set: rank groups only, suits
+/// ignored. Byte 0 is the class (0 high card, 1 pair, 2 two pair, 3 trips,
+/// 4 quads), then the distinct ranks by group size and rank, most
+/// significant first. Compare with `>` for high games and `<` for razz —
+/// pairing raises the class, which is exactly what makes a pair bad for a
+/// low hand. `low` switches to ace-low rank indices.
+fn visible_key(up: &[Card], low: bool) -> Vec<u8> {
+    let mut counts = [0u8; 13];
+    for card in up {
+        let rank = card.rank().index();
+        counts[if low {
+            ((rank + 1) % 13) as usize
+        } else {
+            rank as usize
+        }] += 1;
     }
-    for street in &spec.streets {
-        match street.deal {
-            DealSpec::HoleUp(_) => return Err(HandError::Unsupported("face-up hole cards")),
-            DealSpec::Draw { .. } => return Err(HandError::Unsupported("draw streets")),
-            _ => {}
-        }
-        if let Some(round) = street.betting
-            && round.first_to_act == FirstToAct::ByUpcards
-        {
-            return Err(HandError::Unsupported("upcard-determined action order"));
-        }
-    }
-    Ok(())
+    let mut groups: Vec<(u8, u8)> = (0..13u8)
+        .filter(|&r| counts[r as usize] > 0)
+        .map(|r| (counts[r as usize], r))
+        .collect();
+    groups.sort_unstable_by(|a, b| b.cmp(a));
+    let pairs = groups.iter().filter(|&&(n, _)| n == 2).count();
+    let class = match groups.first().map(|&(n, _)| n) {
+        Some(4) => 4,
+        Some(3) => 3,
+        Some(2) if pairs >= 2 => 2,
+        Some(2) => 1,
+        _ => 0,
+    };
+    let mut key = vec![class];
+    key.extend(groups.into_iter().map(|(_, rank)| rank));
+    key
 }
 
-/// Upper bound on cards consumed by a full run-out.
+/// Cards the deck must hold up front. Draw streets are excluded: their
+/// replacements come out of the discard pile once the deck runs dry, so a
+/// worst-case bound would reject perfectly playable games.
 fn cards_needed(spec: &GameSpec, seats: usize) -> usize {
     spec.streets
         .iter()
         .map(|street| match street.deal {
-            DealSpec::None => 0,
+            DealSpec::None | DealSpec::Draw { .. } => 0,
             DealSpec::HolePrivate(n) | DealSpec::HoleUp(n) => n as usize * seats,
             DealSpec::Community(n) => n as usize,
-            DealSpec::Draw { max } => max as usize * seats,
         })
         .sum()
 }
@@ -882,8 +1172,13 @@ fn conforms(action: &Action, la: &LegalActions) -> Result<(), &'static str> {
         Action::Call => Err("there is nothing to call"),
         Action::Bet { to } => in_bounds(to, la.bet, "betting is closed; a wager is already live"),
         Action::Raise { to } => in_bounds(to, la.raise, "raising is not available"),
-        Action::BringIn => Err("this game has no bring-in"),
-        Action::Discard { .. } => Err("no draw round is in progress"),
+        Action::BringIn if la.bring_in.is_some() => Ok(()),
+        Action::BringIn => Err("no bring-in is owed"),
+        Action::Discard { cards } => match la.draw {
+            Some(b) if cards.len() <= b.max_discards as usize => Ok(()),
+            Some(_) => Err("more cards discarded than the draw allows"),
+            None => Err("no draw round is in progress"),
+        },
     }
 }
 
@@ -912,31 +1207,27 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_specs() {
-        let mut spec = nl(9);
-        spec.forced_bets = ForcedBets::BringIn {
-            ante: 1,
-            bring_in: 2,
-            low: false,
-        };
-        assert_eq!(
-            HandState::new(&spec, &[100, 100], 0, 1, Deck::standard(), test_rng()).err(),
-            Some(HandError::Unsupported("bring-in forced bets"))
-        );
-
-        let mut spec = nl(9);
-        spec.streets[0].deal = DealSpec::HoleUp(2);
-        assert!(matches!(
-            HandState::new(&spec, &[100, 100], 0, 1, Deck::standard(), test_rng()).err(),
-            Some(HandError::Unsupported(_))
-        ));
-
-        let mut spec = nl(9);
-        spec.streets[1].betting.as_mut().unwrap().first_to_act = FirstToAct::ByUpcards;
-        assert!(matches!(
-            HandState::new(&spec, &[100, 100], 0, 1, Deck::standard(), test_rng()).err(),
-            Some(HandError::Unsupported(_))
-        ));
+    fn every_registered_spec_starts_a_hand() {
+        // The M1 `Unsupported` gate is gone: stud and draw specs must all
+        // reach a first decision (or settle outright) without erroring.
+        for id in GameSpec::known_ids() {
+            let spec = GameSpec::by_id(
+                id,
+                Stakes {
+                    small_blind: 1,
+                    big_blind: 2,
+                },
+            )
+            .unwrap();
+            let seats = *spec.seats.start() as usize;
+            let stacks = vec![500 as Chips; seats];
+            let mut rng = Rng64::from_seed_stream(9, 9);
+            let deck = Deck::shuffled(&mut rng);
+            let (hand, ev) = HandState::new(&spec, &stacks, 0, 1, deck, test_rng())
+                .unwrap_or_else(|e| panic!("{id} failed to start: {e}"));
+            assert!(hand.to_act().is_some(), "{id} produced no decision");
+            assert!(matches!(ev.first(), Some(Event::HandStart { .. })));
+        }
     }
 
     #[test]

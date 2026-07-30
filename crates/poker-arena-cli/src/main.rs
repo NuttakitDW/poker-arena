@@ -397,6 +397,36 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// Prints the behavioral profile table: VPIP, PFR, AF, WTSD, WSD, and fold
+/// rate per bot, 3 decimals for rate fields (2 for AF, "inf" when calls are
+/// zero but aggression isn't).
+fn print_behavior_report(result: &poker_arena::MatchResult) {
+    println!();
+    println!(
+        "{:<16} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6}",
+        "bot", "vpip", "pfr", "af", "wtsd", "wsd", "fold"
+    );
+    for o in &result.outcomes {
+        let b = &o.behavior;
+        let af = b.af();
+        let af_field = if af.is_infinite() {
+            "inf".to_string()
+        } else {
+            format!("{af:.2}")
+        };
+        println!(
+            "{:<16} {:>6.3} {:>6.3} {:>6} {:>6.3} {:>6.3} {:>6.3}",
+            o.name,
+            b.vpip(),
+            b.pfr(),
+            af_field,
+            b.wtsd(),
+            b.wsd(),
+            b.fold_rate(),
+        );
+    }
+}
+
 fn print_report(result: &poker_arena::MatchResult) {
     println!(
         "{:<16} {:>10} {:>14} {:>24} {:>7}",
@@ -413,6 +443,8 @@ fn print_report(result: &poker_arena::MatchResult) {
             o.name, result.hands_played, o.total_net_chips, bb_field, o.faults
         );
     }
+
+    print_behavior_report(result);
 
     if result.forfeited_by.is_none() && result.outcomes.len() == 2 {
         let leader = if result.outcomes[0].stats.mean() >= result.outcomes[1].stats.mean() {
