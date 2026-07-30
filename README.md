@@ -21,7 +21,7 @@ Run 10,000 duplicate-dealt decks of heads-up no-limit hold'em between two
 builtin bots:
 
 ```sh
-cargo run --release -p poker-arena -- run \
+cargo run --release -p poker-arena-cli -- run \
   --game holdem-nl \
   --bot builtin:caller --bot builtin:random \
   --hands 10000 --seed 42 --progress-every 1000
@@ -30,7 +30,7 @@ cargo run --release -p poker-arena -- run \
 List supported games:
 
 ```sh
-cargo run --release -p poker-arena -- games
+cargo run --release -p poker-arena-cli -- games
 ```
 
 Currently registered: `holdem-nl`, `holdem-fl`, `omaha-pl`, `omaha8-pl`,
@@ -44,7 +44,7 @@ see [docs/wire-protocol.md](docs/wire-protocol.md) for the full v1 spec and
 [examples/bot.py](examples/bot.py) for a dependency-free Python reference:
 
 ```sh
-cargo run --release -p poker-arena -- run \
+cargo run --release -p poker-arena-cli -- run \
   --game holdem-nl \
   --bot cmd:"python3 examples/bot.py" \
   --bot builtin:random \

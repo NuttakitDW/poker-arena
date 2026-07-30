@@ -3,6 +3,7 @@ members = [
     "crates/poker-core",
     "crates/poker-wire",
     "crates/poker-arena",
+    "crates/poker-arena-cli",
 ]
 resolver = "3"
 
@@ -12,6 +13,7 @@ edition = "2024"
 description = "A poker bot competition arena supporting many poker variants."
 
 [workspace.dependencies]
+poker-arena = { path = "crates/poker-arena" }
 poker-core = { path = "crates/poker-core" }
 poker-wire = { path = "crates/poker-wire" }
 clap = { version = "4", features = ["derive"] }

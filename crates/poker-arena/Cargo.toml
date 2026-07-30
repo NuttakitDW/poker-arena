@@ -7,11 +7,10 @@ description = "Poker bot competition arena: match runner, bots, stats, CLI."
 [dependencies]
 poker-core = { workspace = true, features = ["serde"] }
 poker-wire = { workspace = true }
-clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
-[[bin]]
-name = "poker-arena"
-path = "src/main.rs"
+# `wire-caller` (src/bin/) stays in this package: its integration tests find
+# it via CARGO_BIN_EXE_, which only resolves within the defining package.
+# The user-facing `poker-arena` binary lives in the poker-arena-cli crate.

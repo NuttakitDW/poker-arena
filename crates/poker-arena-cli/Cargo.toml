@@ -1,0 +1,15 @@
+[package]
+name = "poker-arena-cli"
+version.workspace = true
+edition.workspace = true
+description = "Command-line match runner for poker-arena."
+
+[dependencies]
+poker-arena = { workspace = true }
+poker-core = { workspace = true, features = ["serde"] }
+poker-wire = { workspace = true }
+clap = { workspace = true }
+
+[[bin]]
+name = "poker-arena"
+path = "src/main.rs"
