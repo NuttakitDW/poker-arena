@@ -10,15 +10,73 @@ use core::ops::RangeInclusive;
 use super::action::Chips;
 use crate::eval::{EvalKind, HoleUsage};
 
-/// Stakes for a game. For big-bet games (`NoLimit`/`PotLimit`) these are the
-/// literal blinds. For fixed-limit games, convention: `small_bet == big_blind`
-/// and `big_bet == 2 * big_blind` (so `Stakes { 50, 100 }` means a 100/200
-/// limit game with a 50 small blind).
+/// What a game costs to sit in. Two shapes because the families genuinely
+/// differ: blind games post blinds; stud games post antes and a bring-in.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Stakes {
-    pub small_blind: Chips,
-    pub big_blind: Chips,
+#[cfg_attr(feature = "serde", serde(tag = "kind", rename_all = "kebab-case"))]
+pub enum Stakes {
+    /// Blind games (hold'em, Omaha, draw). Fixed-limit variants use the
+    /// standard convention small bet = big blind, big bet = 2 × big blind.
+    Blinds {
+        small_blind: Chips,
+        big_blind: Chips,
+    },
+    /// Stud games: per-player ante, forced bring-in, and the two bet tiers.
+    Stud {
+        ante: Chips,
+        bring_in: Chips,
+        small_bet: Chips,
+        big_bet: Chips,
+    },
+}
+
+impl Stakes {
+    /// The unit winnings are normalized in (bb/100): the big blind for
+    /// blind games, the small bet for stud.
+    pub fn rate_unit(&self) -> Chips {
+        match self {
+            Stakes::Blinds { big_blind, .. } => *big_blind,
+            Stakes::Stud { small_bet, .. } => *small_bet,
+        }
+    }
+
+    /// Small/big blind for blind games; a `Stud` stakes derives
+    /// (small_bet / 2, small_bet) so blind-game constructors are total.
+    pub fn blinds(&self) -> (Chips, Chips) {
+        match self {
+            Stakes::Blinds {
+                small_blind,
+                big_blind,
+            } => (*small_blind, *big_blind),
+            Stakes::Stud { small_bet, .. } => (small_bet / 2, *small_bet),
+        }
+    }
+
+    /// (small_bet, big_bet) tier sizes: Blinds → (bb, 2*bb); Stud → explicit.
+    pub fn tiers(&self) -> (Chips, Chips) {
+        match self {
+            Stakes::Blinds { big_blind, .. } => (*big_blind, *big_blind * 2),
+            Stakes::Stud {
+                small_bet, big_bet, ..
+            } => (*small_bet, *big_bet),
+        }
+    }
+
+    /// Normalize into stud numbers: Stud passes through; Blinds derives
+    /// ante = bb/5 (min 1), bring_in = bb/2 (min 1), small_bet = bb,
+    /// big_bet = 2*bb — exactly the current derivation.
+    pub fn to_stud(&self) -> Stakes {
+        match self {
+            Stakes::Stud { .. } => *self,
+            Stakes::Blinds { big_blind, .. } => Stakes::Stud {
+                ante: (big_blind / 5).max(1),
+                bring_in: (big_blind / 2).max(1),
+                small_bet: *big_blind,
+                big_bet: *big_blind * 2,
+            },
+        }
+    }
 }
 
 /// Forced bets posted before any cards are acted on.
@@ -182,6 +240,7 @@ impl GameSpec {
     fn holdem_base(stakes: Stakes) -> GameSpec {
         use BetTier::*;
         use FirstToAct::*;
+        let (small_blind, big_blind) = stakes.blinds();
         let street = |label, deal, tier, first_to_act| StreetSpec {
             label,
             deal,
@@ -191,7 +250,10 @@ impl GameSpec {
             id: "holdem",
             display_name: "Texas Hold'em",
             seats: 2..=9,
-            stakes,
+            stakes: Stakes::Blinds {
+                small_blind,
+                big_blind,
+            },
             forced_bets: ForcedBets::Blinds { ante: 0 },
             betting: BettingKind::NoLimit,
             streets: vec![
@@ -344,7 +406,10 @@ impl GameSpec {
     /// cards, then the door card with the bring-in betting round.
     fn stud_base(stakes: Stakes, low: bool) -> GameSpec {
         use BetTier::*;
-        let small_bet = stakes.big_blind;
+        let stud_stakes = stakes.to_stud();
+        let Stakes::Stud { ante, bring_in, .. } = stud_stakes else {
+            unreachable!("to_stud() always returns Stakes::Stud")
+        };
         let street = |label, deal, tier| StreetSpec {
             label,
             deal,
@@ -357,10 +422,10 @@ impl GameSpec {
             id: "stud",
             display_name: "Seven-Card Stud",
             seats: 2..=7,
-            stakes,
+            stakes: stud_stakes,
             forced_bets: ForcedBets::BringIn {
-                ante: (small_bet / 5).max(1),
-                bring_in: (small_bet / 2).max(1),
+                ante,
+                bring_in,
                 low,
             },
             betting: BettingKind::FixedLimit { raise_cap: Some(4) },
@@ -422,11 +487,15 @@ impl GameSpec {
             deal,
             betting: Some(BetRoundSpec { tier, first_to_act }),
         };
+        let (small_blind, big_blind) = stakes.blinds();
         GameSpec {
             id: "5cd-nl",
             display_name: "No-Limit Five-Card Draw",
             seats: 2..=6,
-            stakes,
+            stakes: Stakes::Blinds {
+                small_blind,
+                big_blind,
+            },
             forced_bets: ForcedBets::Blinds { ante: 0 },
             betting: BettingKind::NoLimit,
             streets: vec![
@@ -450,11 +519,15 @@ impl GameSpec {
             betting: Some(BetRoundSpec { tier, first_to_act }),
         };
         let draw = DealSpec::Draw { max: hand_size };
+        let (small_blind, big_blind) = stakes.blinds();
         GameSpec {
             id: "triple-draw",
             display_name: "Triple Draw",
             seats: 2..=6,
-            stakes,
+            stakes: Stakes::Blinds {
+                small_blind,
+                big_blind,
+            },
             forced_bets: ForcedBets::Blinds { ante: 0 },
             betting: BettingKind::FixedLimit { raise_cap: Some(4) },
             streets: vec![
@@ -481,9 +554,165 @@ impl GameSpec {
 
     /// Fixed-limit bet size for a tier under these stakes.
     pub fn tier_size(&self, tier: BetTier) -> Chips {
+        let (small_bet, big_bet) = self.stakes.tiers();
         match tier {
-            BetTier::Small => self.stakes.big_blind,
-            BetTier::Big => self.stakes.big_blind * 2,
+            BetTier::Small => small_bet,
+            BetTier::Big => big_bet,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BLINDS: Stakes = Stakes::Blinds {
+        small_blind: 50,
+        big_blind: 100,
+    };
+
+    const STUD: Stakes = Stakes::Stud {
+        ante: 10,
+        bring_in: 30,
+        small_bet: 100,
+        big_bet: 200,
+    };
+
+    #[test]
+    fn rate_unit_is_big_blind_for_blinds_and_small_bet_for_stud() {
+        assert_eq!(BLINDS.rate_unit(), 100);
+        assert_eq!(STUD.rate_unit(), 100);
+    }
+
+    #[test]
+    fn blinds_passes_through_for_blind_games() {
+        assert_eq!(BLINDS.blinds(), (50, 100));
+    }
+
+    #[test]
+    fn blinds_derives_from_stud_small_bet() {
+        // small_bet / 2, small_bet
+        assert_eq!(STUD.blinds(), (50, 100));
+    }
+
+    #[test]
+    fn tiers_for_blinds_is_bb_and_2bb() {
+        assert_eq!(BLINDS.tiers(), (100, 200));
+    }
+
+    #[test]
+    fn tiers_for_stud_is_explicit_small_and_big_bet() {
+        assert_eq!(STUD.tiers(), (100, 200));
+    }
+
+    #[test]
+    fn to_stud_passes_through_stud_stakes_verbatim() {
+        assert_eq!(STUD.to_stud(), STUD);
+    }
+
+    #[test]
+    fn to_stud_derives_ante_bring_in_and_bet_tiers_from_blinds() {
+        // ante = bb/5 (min 1), bring_in = bb/2 (min 1), small_bet = bb,
+        // big_bet = 2*bb — the pre-refactor derivation.
+        assert_eq!(
+            BLINDS.to_stud(),
+            Stakes::Stud {
+                ante: 20,
+                bring_in: 50,
+                small_bet: 100,
+                big_bet: 200,
+            }
+        );
+    }
+
+    #[test]
+    fn to_stud_derivation_floors_ante_and_bring_in_at_one() {
+        let tiny = Stakes::Blinds {
+            small_blind: 1,
+            big_blind: 2,
+        };
+        assert_eq!(
+            tiny.to_stud(),
+            Stakes::Stud {
+                ante: 1,
+                bring_in: 1,
+                small_bet: 2,
+                big_bet: 4,
+            }
+        );
+    }
+
+    #[test]
+    fn stud_spec_built_from_blind_stakes_matches_the_pre_refactor_derivation() {
+        let spec = GameSpec::stud_fl(BLINDS);
+        assert_eq!(
+            spec.stakes,
+            Stakes::Stud {
+                ante: 20,
+                bring_in: 50,
+                small_bet: 100,
+                big_bet: 200,
+            }
+        );
+        assert_eq!(
+            spec.forced_bets,
+            ForcedBets::BringIn {
+                ante: 20,
+                bring_in: 50,
+                low: false,
+            }
+        );
+        assert_eq!(spec.tier_size(BetTier::Small), 100);
+        assert_eq!(spec.tier_size(BetTier::Big), 200);
+    }
+
+    #[test]
+    fn stud_spec_built_from_explicit_stud_stakes_uses_them_verbatim() {
+        let spec = GameSpec::stud_fl(STUD);
+        assert_eq!(spec.stakes, STUD);
+        assert_eq!(
+            spec.forced_bets,
+            ForcedBets::BringIn {
+                ante: 10,
+                bring_in: 30,
+                low: false,
+            }
+        );
+        assert_eq!(spec.tier_size(BetTier::Small), 100);
+        assert_eq!(spec.tier_size(BetTier::Big), 200);
+    }
+
+    #[test]
+    fn blind_spec_built_from_stud_stakes_derives_blinds() {
+        let spec = GameSpec::holdem_nl(STUD);
+        assert_eq!(
+            spec.stakes,
+            Stakes::Blinds {
+                small_blind: 50,
+                big_blind: 100,
+            }
+        );
+    }
+
+    #[test]
+    fn stakes_are_stored_normalized_by_family() {
+        // A stud spec's stakes is always the Stud variant, no matter what
+        // shape it was constructed with; a blind spec's is always Blinds.
+        assert!(matches!(
+            GameSpec::stud_fl(BLINDS).stakes,
+            Stakes::Stud { .. }
+        ));
+        assert!(matches!(
+            GameSpec::stud_fl(STUD).stakes,
+            Stakes::Stud { .. }
+        ));
+        assert!(matches!(
+            GameSpec::holdem_nl(BLINDS).stakes,
+            Stakes::Blinds { .. }
+        ));
+        assert!(matches!(
+            GameSpec::holdem_nl(STUD).stakes,
+            Stakes::Blinds { .. }
+        ));
     }
 }

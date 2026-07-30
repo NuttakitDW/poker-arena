@@ -21,7 +21,7 @@ fn test_rng() -> Rng64 {
     Rng64::from_seed_stream(0, 0)
 }
 
-const STAKES: Stakes = Stakes {
+const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
     big_blind: 100,
 };

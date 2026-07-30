@@ -300,7 +300,7 @@ impl HandState {
             acted: vec![false; seats],
             street: 0,
             current_to: 0,
-            last_raise: spec.stakes.big_blind.max(1),
+            last_raise: spec.stakes.blinds().1.max(1),
             wagers: 0,
             phase: Phase::Betting,
             bring_in_pending: false,
@@ -607,10 +607,10 @@ impl HandState {
         }
 
         let (sb_seat, bb_seat) = self.blind_seats();
-        let stakes = self.spec.stakes;
+        let (small_blind, big_blind) = self.spec.stakes.blinds();
         for (seat, kind, nominal) in [
-            (sb_seat, PostKind::SmallBlind, stakes.small_blind),
-            (bb_seat, PostKind::BigBlind, stakes.big_blind),
+            (sb_seat, PostKind::SmallBlind, small_blind),
+            (bb_seat, PostKind::BigBlind, big_blind),
         ] {
             let amount = nominal.min(self.stacks[seat]);
             if amount == 0 {
@@ -626,8 +626,8 @@ impl HandState {
         }
 
         // A short all-in blind never lowers the price for anyone else.
-        self.current_to = stakes.big_blind;
-        self.last_raise = stakes.big_blind.max(1);
+        self.current_to = big_blind;
+        self.last_raise = big_blind.max(1);
         if matches!(self.spec.betting, BettingKind::FixedLimit { .. }) {
             self.wagers = 1;
         }
@@ -885,7 +885,7 @@ impl HandState {
             self.acted[s] = false;
         }
         self.current_to = 0;
-        self.last_raise = self.spec.stakes.big_blind.max(1);
+        self.last_raise = self.spec.stakes.blinds().1.max(1);
         self.wagers = 0;
         self.phase = Phase::Betting;
         self.bring_in_pending = false;
@@ -1192,7 +1192,7 @@ mod tests {
     }
 
     fn nl(seats: u8) -> GameSpec {
-        let mut spec = GameSpec::holdem_nl(Stakes {
+        let mut spec = GameSpec::holdem_nl(Stakes::Blinds {
             small_blind: 1,
             big_blind: 2,
         });
@@ -1213,7 +1213,7 @@ mod tests {
         for id in GameSpec::known_ids() {
             let spec = GameSpec::by_id(
                 id,
-                Stakes {
+                Stakes::Blinds {
                     small_blind: 1,
                     big_blind: 2,
                 },

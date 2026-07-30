@@ -71,10 +71,20 @@ Sent once, immediately after connection.
 | `starting_stack`| u64               | Chips every seat starts each hand with.    |
 | `timeout_ms`    | u64 or `null`     | Per-action deadline the arena enforces, or `null` for none. |
 
-`GameInfo.stakes` is `{ small_blind: u64, big_blind: u64 }`.
+`GameInfo.stakes` is tagged on `kind` and has two shapes, depending on the
+game family:
+
+- Blind games (hold'em, Omaha, draw): `{ kind: "blinds", small_blind: u64,
+  big_blind: u64 }`.
+- Stud games: `{ kind: "stud", ante: u64, bring_in: u64, small_bet: u64,
+  big_bet: u64 }`.
 
 ```json
-{"t":"hello","proto":1,"game":{"id":"holdem-nl","display_name":"No-Limit Texas Hold'em","stakes":{"small_blind":50,"big_blind":100}},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
+{"t":"hello","proto":1,"game":{"id":"holdem-nl","display_name":"No-Limit Texas Hold'em","stakes":{"kind":"blinds","small_blind":50,"big_blind":100}},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
+```
+
+```json
+{"t":"hello","proto":1,"game":{"id":"stud-fl","display_name":"Seven-Card Stud","stakes":{"kind":"stud","ante":20,"bring_in":50,"small_bet":100,"big_bet":200}},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
 ```
 
 ### `hand-start`
@@ -333,7 +343,7 @@ A complete heads-up no-limit hold'em hand from one bot's point of view
 the whole hand-end-to-hand-end cycle fits in ~20 lines:
 
 ```json
-{"t":"hello","proto":1,"game":{"id":"holdem-nl","display_name":"No-Limit Texas Hold'em","stakes":{"small_blind":50,"big_blind":100}},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
+{"t":"hello","proto":1,"game":{"id":"holdem-nl","display_name":"No-Limit Texas Hold'em","stakes":{"kind":"blinds","small_blind":50,"big_blind":100}},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
 {"t":"join","name":"check-call-bot"}
 {"t":"hand-start","hand_no":1,"seat":0,"button":1,"seat_count":2,"stacks":[10000,10000]}
 {"t":"event","hand_no":1,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}

@@ -19,7 +19,7 @@ fn test_rng() -> Rng64 {
     Rng64::from_seed_stream(0, 0)
 }
 
-const STAKES: Stakes = Stakes {
+const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
     big_blind: 100,
 };
@@ -728,7 +728,7 @@ fn four_handed_two_level_side_pots_with_a_folder() {
 #[test]
 fn split_pot_odd_chip_goes_left_of_the_button() {
     // Board plays for everyone; seats 0 and 2 chop an odd 275-chip pot.
-    let stakes = Stakes {
+    let stakes = Stakes::Blinds {
         small_blind: 25,
         big_blind: 50,
     };
@@ -1117,7 +1117,7 @@ fn random_hands_conserve_chips_and_terminate() {
         for depth in [3u64, 10, 100, 250] {
             for (i, spec) in [nl(seats), fl(seats)].iter().enumerate() {
                 for seed in 0..10u64 {
-                    let stacks = vec![depth * STAKES.big_blind; seats as usize];
+                    let stacks = vec![depth * STAKES.blinds().1; seats as usize];
                     let button = (seed as usize) % seats as usize;
                     let key = seed * 1000 + depth * 7 + seats as u64 + i as u64 * 131;
                     let events = random_hand(spec, &stacks, button, key);
@@ -1153,7 +1153,7 @@ fn random_hands_are_deterministic() {
     for seats in 2..=6u8 {
         for spec in [nl(seats), fl(seats)] {
             for seed in 0..5u64 {
-                let stacks = vec![100 * STAKES.big_blind; seats as usize];
+                let stacks = vec![100 * STAKES.blinds().1; seats as usize];
                 let a = random_hand(&spec, &stacks, 0, seed);
                 let b = random_hand(&spec, &stacks, 0, seed);
                 assert_eq!(a, b, "same seed must replay identically");

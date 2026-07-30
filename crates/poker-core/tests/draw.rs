@@ -18,7 +18,7 @@ fn test_rng() -> Rng64 {
     Rng64::from_seed_stream(0, 0)
 }
 
-const STAKES: Stakes = Stakes {
+const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
     big_blind: 100,
 };
@@ -698,7 +698,7 @@ fn random_draw_hands_hold_every_invariant() {
         for seats in 2..=6usize {
             for depth in [5u64, 60] {
                 for seed in 0..50u64 {
-                    let stacks = vec![depth * STAKES.big_blind; seats];
+                    let stacks = vec![depth * STAKES.blinds().1; seats];
                     let key = seed * 977 + depth * 13 + seats as u64;
                     let events = random_hand(spec, &stacks, seed as usize % seats, key);
                     if events
@@ -732,7 +732,7 @@ fn random_draw_hands_are_deterministic() {
     ] {
         for seats in 2..=6usize {
             for seed in 0..5u64 {
-                let stacks = vec![60 * STAKES.big_blind; seats];
+                let stacks = vec![60 * STAKES.blinds().1; seats];
                 let a = random_hand(&spec, &stacks, 0, seed);
                 let b = random_hand(&spec, &stacks, 0, seed);
                 assert_eq!(a, b, "same seed must replay identically");

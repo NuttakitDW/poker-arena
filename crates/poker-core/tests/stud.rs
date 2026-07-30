@@ -21,7 +21,7 @@ fn test_rng() -> Rng64 {
 
 /// Small bet 100, big bet 200; the stud constructors derive ante 20 and
 /// bring-in 50 from these.
-const STAKES: Stakes = Stakes {
+const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
     big_blind: 100,
 };

@@ -20,7 +20,7 @@ use poker_core::game::{Action, BetBounds, Chips, GameSpec, LegalActions, Stakes}
 use poker_wire::framing::{read_msg, write_msg};
 use poker_wire::message::{ArenaMsg, BotMsg, GameInfo};
 
-const STAKES: Stakes = Stakes {
+const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
     big_blind: 100,
 };

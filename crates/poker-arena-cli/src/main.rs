@@ -64,6 +64,26 @@ struct RunArgs {
     #[arg(long, default_value_t = 100)]
     bb: u64,
 
+    /// Per-player ante, in chips. Stud games only; defaults to bb/5 (min 1).
+    /// Passing this for a non-stud game is an error.
+    #[arg(long)]
+    ante: Option<u64>,
+
+    /// Forced bring-in, in chips. Stud games only; defaults to bb/2 (min 1).
+    /// Passing this for a non-stud game is an error.
+    #[arg(long)]
+    bring_in: Option<u64>,
+
+    /// Small bet tier, in chips. Stud games only; defaults to bb. Passing
+    /// this for a non-stud game is an error.
+    #[arg(long)]
+    small_bet: Option<u64>,
+
+    /// Big bet tier, in chips. Stud games only; defaults to 2 × small bet.
+    /// Passing this for a non-stud game is an error.
+    #[arg(long)]
+    big_bet: Option<u64>,
+
     /// Number of decks to play: one hand per deck in seeded mode, or
     /// decks of duplicate rotations (one hand per seat rotation, all bots
     /// see every deck from every seat) in duplicate mode.
@@ -141,7 +161,7 @@ impl From<FaultPolicyArg> for FaultPolicy {
 }
 
 fn print_games() {
-    let placeholder_stakes = Stakes {
+    let placeholder_stakes = Stakes::Blinds {
         small_blind: 50,
         big_blind: 100,
     };
@@ -315,12 +335,50 @@ fn disambiguate(base_names: &[String]) -> Vec<String> {
 }
 
 fn run(args: RunArgs) -> Result<ExitCode, String> {
-    let stakes = Stakes {
+    let blind_stakes = Stakes::Blinds {
         small_blind: args.sb,
         big_blind: args.bb,
     };
-    let spec = GameSpec::by_id(&args.game, stakes)
+    let mut spec = GameSpec::by_id(&args.game, blind_stakes)
         .ok_or_else(|| format!("unknown game {:?} (see `poker-arena games`)", args.game))?;
+
+    let stud_flags_given = args.ante.is_some()
+        || args.bring_in.is_some()
+        || args.small_bet.is_some()
+        || args.big_bet.is_some();
+    match spec.stakes {
+        Stakes::Stud { .. } => {
+            // Rebuild with explicit stud numbers layered over the same
+            // derivation `Stakes::to_stud` would have used, so omitted
+            // flags fall back to exactly today's defaults.
+            let default_stud = blind_stakes.to_stud();
+            let Stakes::Stud {
+                ante: default_ante,
+                bring_in: default_bring_in,
+                small_bet: default_small_bet,
+                ..
+            } = default_stud
+            else {
+                unreachable!("to_stud() always returns Stakes::Stud")
+            };
+            let small_bet = args.small_bet.unwrap_or(default_small_bet);
+            let stud_stakes = Stakes::Stud {
+                ante: args.ante.unwrap_or(default_ante),
+                bring_in: args.bring_in.unwrap_or(default_bring_in),
+                small_bet,
+                big_bet: args.big_bet.unwrap_or(small_bet * 2),
+            };
+            spec = GameSpec::by_id(&args.game, stud_stakes)
+                .ok_or_else(|| format!("unknown game {:?} (see `poker-arena games`)", args.game))?;
+        }
+        Stakes::Blinds { .. } if stud_flags_given => {
+            return Err(
+                "--ante/--bring-in/--small-bet/--big-bet apply only to stud games".to_string(),
+            );
+        }
+        Stakes::Blinds { .. } => {}
+    }
+    let stakes = spec.stakes;
 
     let (seat_min, seat_max) = (*spec.seats.start() as usize, *spec.seats.end() as usize);
     if args.bots.len() < seat_min || args.bots.len() > seat_max {

@@ -15,7 +15,7 @@ use poker_arena::runner::run_match;
 use poker_core::game::{GameSpec, Stakes};
 use poker_wire::message::{ArenaMsg, GameInfo};
 
-const STAKES: Stakes = Stakes {
+const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
     big_blind: 100,
 };
@@ -38,7 +38,7 @@ fn config(spec: GameSpec, decks: u64, seed: u64, dealing: DealingMode) -> MatchC
         decks,
         seed,
         dealing,
-        starting_stack: 100 * STAKES.big_blind,
+        starting_stack: 100 * STAKES.blinds().1,
         fault_policy: FaultPolicy::CheckFold,
         timeout: Some(Duration::from_secs(1)),
     }
@@ -172,7 +172,7 @@ fn wire_caller_plays_stud_and_draw_games_over_the_wire() {
     for id in ["stud-fl", "27td-fl"] {
         let spec = GameSpec::by_id(id, STAKES).unwrap();
         let decks = 20;
-        let starting_stack = 100 * STAKES.big_blind;
+        let starting_stack = 100 * STAKES.blinds().1;
         let mut cfg = config(spec.clone(), decks, 321, DealingMode::Duplicate);
         cfg.timeout = Some(Duration::from_secs(5));
         cfg.starting_stack = starting_stack;

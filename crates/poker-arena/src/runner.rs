@@ -54,9 +54,12 @@ pub struct BotOutcome {
     /// Sum of this bot's actual per-hand net chips over every hand played
     /// (not the variance-reduced observations used for `stats`).
     pub total_net_chips: i64,
-    /// Observations in big blinds *per hand* (Seeded), or big blinds per
-    /// hand *averaged over a duplicate rotation set* (Duplicate) — see the
-    /// module docs on [`crate::config::DealingMode`].
+    /// Observations in [`Stakes::rate_unit`](poker_core::game::Stakes::rate_unit)
+    /// units *per hand* (Seeded), or that same unit *averaged over a
+    /// duplicate rotation set* (Duplicate) — see the module docs on
+    /// [`crate::config::DealingMode`]. The unit is the big blind for blind
+    /// games (hold'em, Omaha, draw) and the small bet for stud games —
+    /// so cross-family comparisons of this field are not apples-to-apples.
     pub stats: RateStats,
     pub faults: u64,
     /// This bot's behavioral profile (VPIP/PFR/AF/WTSD/WSD/fold rate)
@@ -131,7 +134,7 @@ pub fn run_match(
         return Err(MatchError::Empty);
     }
 
-    let big_blind = config.spec.stakes.big_blind.max(1) as f64;
+    let rate_unit = config.spec.stakes.rate_unit().max(1) as f64;
 
     let mut totals = vec![0i64; n];
     let mut stats: Vec<RateStats> = vec![RateStats::new(); n];
@@ -180,14 +183,14 @@ pub fn run_match(
             }
             if config.dealing == DealingMode::Seeded {
                 for (bot_stats, &net) in stats.iter_mut().zip(&outcome.nets) {
-                    bot_stats.push(net as f64 / big_blind);
+                    bot_stats.push(net as f64 / rate_unit);
                 }
             }
         }
 
         if config.dealing == DealingMode::Duplicate {
             for (bot_stats, &sum) in stats.iter_mut().zip(&deck_net_sum) {
-                bot_stats.push((sum as f64 / n as f64) / big_blind);
+                bot_stats.push((sum as f64 / n as f64) / rate_unit);
             }
         }
 
@@ -408,7 +411,7 @@ mod tests {
         fault_policy: FaultPolicy,
     ) -> MatchConfig {
         MatchConfig {
-            spec: GameSpec::holdem_nl(Stakes {
+            spec: GameSpec::holdem_nl(Stakes::Blinds {
                 small_blind: 50,
                 big_blind: 100,
             }),
@@ -680,7 +683,7 @@ mod tests {
         for id in ["stud-fl", "27td-fl"] {
             let spec = GameSpec::by_id(
                 id,
-                Stakes {
+                Stakes::Blinds {
                     small_blind: 50,
                     big_blind: 100,
                 },
