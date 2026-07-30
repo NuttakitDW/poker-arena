@@ -740,3 +740,66 @@ fn random_draw_hands_are_deterministic() {
         }
     }
 }
+
+/// Folded hands join the muck: under deck exhaustion their cards are
+/// reshuffled back into circulation and can legally reappear in live hands.
+/// Deterministic for the fixed seed, so the intersection assertion is
+/// stable; folded seats never reach showdown, so no distinctness invariant
+/// is affected.
+#[test]
+fn folded_hands_are_reshuffled_into_the_draw_pile() {
+    let spec = GameSpec::td27_fl(STAKES);
+    let (mut hand, setup) =
+        HandState::new(&spec, &[100_000; 6], 0, 1, Deck::standard(), test_rng()).unwrap();
+
+    let folder: Seat = 3; // first to act preflop with the button at 0
+    let mucked: HashSet<Card> = setup
+        .iter()
+        .find_map(|e| match e {
+            Event::DealHole { seat, cards, .. } if *seat == folder => Some(cards.clone()),
+            _ => None,
+        })
+        .unwrap()
+        .into_iter()
+        .collect();
+
+    let mut drawn_after_fold: HashSet<Card> = HashSet::new();
+    let mut record = |events: &[Event]| {
+        for e in events {
+            if let Event::DrawResult { drawn, .. } = e {
+                drawn_after_fold.extend(drawn.iter().copied());
+            }
+        }
+    };
+
+    while !hand.is_over() {
+        let seat = hand.to_act().unwrap();
+        let legal = hand.legal_actions().unwrap();
+        let action = if legal.draw.is_some() {
+            // Everyone draws the maximum every round to force exhaustion.
+            Action::Discard {
+                cards: hand.hole_cards(seat).to_vec(),
+            }
+        } else if seat == folder && legal.fold {
+            Action::Fold
+        } else if legal.check {
+            Action::Check
+        } else {
+            Action::Call
+        };
+        let events = hand.apply(action).unwrap();
+        record(&events);
+    }
+
+    let recycled: Vec<&Card> = mucked
+        .iter()
+        .filter(|c| drawn_after_fold.contains(c))
+        .collect();
+    assert!(
+        !recycled.is_empty(),
+        "none of the folded hand {mucked:?} re-entered play; drawn set had {} cards",
+        drawn_after_fold.len()
+    );
+    let nets = hand.settlement().unwrap().nets.clone();
+    assert_eq!(nets.iter().sum::<i64>(), 0);
+}

@@ -178,11 +178,16 @@ with per-hand scoring and i.i.d. observations. Badeucy plays aces high in
 *both* halves (nut badugi 5-4-3-2 rainbow), badacey aces low in both;
 that pairing is what distinguishes the two games.
 
-**Stud seats cap at 7; draw games reshuffle discards.** 7 × 7 = 49 ≤ 52,
+**Stud seats cap at 7; draw games reshuffle the muck.** 7 × 7 = 49 ≤ 52,
 so stud never exhausts the deck (the 8-handed shared-community-card
 fallback was deliberately dropped). Draw games can exhaust it; the engine
-reshuffles the discard pile — excluding the drawing seat's own
-just-discarded cards — with the hand's seeded RNG, preserving determinism.
+reshuffles the muck — draw discards *and* folded hands, excluding only the
+drawing seat's own just-discarded cards — matching real-table practice and
+deepening the pile. Determinism is preserved because the reshuffle uses
+the hand's seeded RNG stream (match seed ⊕ salt, per hand number): a
+reshuffled deck is a *fresh deterministic shuffle of the pile*, not a
+reuse of the original deck order, so identical runs replay byte-identically
+while duplicate rotations diverge only where actions already diverged.
 
 **Stakes are a two-shape enum.** Blind games post blinds; stud games post
 antes, a bring-in, and explicit bet tiers — pretending stud stakes are

@@ -143,9 +143,10 @@
 //!   the discards and gains the drawn cards; emit
 //!   `DrawResult { seat, discarded, drawn }` (drawn is private).
 //! - **Deck exhaustion**: if the deck holds fewer cards than a replacement
-//!   request, deal what remains, then reshuffle the discard pile (every
-//!   card discarded earlier this hand, *excluding* the drawing seat's own
-//!   just-discarded cards) into the deck with `self.rng` and continue.
+//!   request, deal what remains, then reshuffle the muck — every card
+//!   discarded earlier this hand plus every folded hand, *excluding* the
+//!   drawing seat's own just-discarded cards — into the deck with
+//!   `self.rng` and continue.
 //!   Only if that still cannot cover the request (pathological) may the
 //!   seat's own discards be included. No dedicated event — determinism
 //!   comes from the seeded RNG.
@@ -487,7 +488,16 @@ impl HandState {
         let mut ev = Vec::new();
 
         match action {
-            Action::Fold => self.folded[seat] = true,
+            Action::Fold => {
+                self.folded[seat] = true;
+                // Folded hands join the muck: in draw games the reshuffle
+                // pile is the whole muck (discards + folded hands), matching
+                // real-table practice and deepening the pile against
+                // exhaustion. Folded seats never reach showdown, so nothing
+                // downstream reads their hole cards.
+                let mut mucked = core::mem::take(&mut self.hole[seat]);
+                self.discards.append(&mut mucked);
+            }
             Action::Check => {}
             Action::Call => {
                 let pay = (self.current_to - self.commit[seat]).min(self.stacks[seat]);
