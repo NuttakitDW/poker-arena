@@ -1,10 +1,10 @@
-//! Runner-level smoke tests for the stud, draw and split-pot families: full
-//! matches driven end to end through [`run_match`] (and, for one case, over
-//! the wire protocol against the real `wire-caller` binary), checking
-//! arena-level invariants — completion, zero-sum totals, zero faults,
-//! determinism — for every stud/draw/split registry id. Hand-by-hand rules
-//! for these families are `poker-core/tests/stud.rs`, `draw.rs` and
-//! `split.rs`'s job.
+//! Runner-level smoke tests for the stud, draw, split-pot and drawmaha
+//! families: full matches driven end to end through [`run_match`] (and, for
+//! one case, over the wire protocol against the real `wire-caller` binary),
+//! checking arena-level invariants — completion, zero-sum totals, zero
+//! faults, determinism — for every stud/draw/split/drawmaha registry id.
+//! Hand-by-hand rules for these families are `poker-core/tests/stud.rs`,
+//! `draw.rs`, `split.rs` and `drawmaha.rs`'s job.
 
 use std::time::Duration;
 
@@ -36,6 +36,11 @@ const STUD_DRAW_IDS: [&str; 7] = [
 /// The four split-pot ids: three five-card triple-draw split games plus
 /// five-card Omaha hi-lo.
 const SPLIT_IDS: [&str; 4] = ["badacey-fl", "badeucy-fl", "archie-fl", "bigo-pl"];
+
+/// The three drawmaha ids: five-card Omaha with a single mid-hand draw,
+/// split hi (omaha) / lo (in-hand, one per evaluator) between the flop and
+/// turn. Hand-by-hand rules are `poker-core/tests/drawmaha.rs`'s job.
+const DRAWMAHA_IDS: [&str; 3] = ["drawmaha-fl", "drawmaha-27-fl", "drawmaha-dugi-fl"];
 
 fn config(spec: GameSpec, decks: u64, seed: u64, dealing: DealingMode) -> MatchConfig {
     MatchConfig {
@@ -146,7 +151,40 @@ fn bigo_pl_six_handed_completes_cleanly() {
     assert_eq!(result.outcomes.len(), 6);
 }
 
-// --- 2. determinism replay: one stud family, one draw family --------------
+// --- 1c. every drawmaha id: a run_match smoke ------------------------------
+
+#[test]
+fn every_drawmaha_registry_id_completes_cleanly() {
+    let decks = 80;
+    for &id in &DRAWMAHA_IDS {
+        let spec = GameSpec::by_id(id, STAKES).unwrap_or_else(|| panic!("unknown id {id}"));
+        let cfg = config(spec, decks, 1_234, DealingMode::Seeded);
+        let mut bots = three_bots(5);
+        let result = run_match(&cfg, &mut bots, None, None)
+            .unwrap_or_else(|e| panic!("{id} failed to run: {e}"));
+        assert_clean(id, &result, decks);
+    }
+}
+
+/// Five seats fits every drawmaha spec (2..=6) and exercises the draw phase
+/// (and its deck-exhaustion reshuffle path) with a fuller table than the
+/// three-handed sweep above.
+#[test]
+fn drawmaha_fl_five_handed_completes_cleanly() {
+    let decks = 60;
+    let cfg = config(
+        GameSpec::drawmaha_fl(STAKES),
+        decks,
+        9_001,
+        DealingMode::Seeded,
+    );
+    let mut bots = mixed_bots(5, 29);
+    let result = run_match(&cfg, &mut bots, None, None).expect("drawmaha-fl five-handed");
+    assert_clean("drawmaha-fl", &result, decks);
+    assert_eq!(result.outcomes.len(), 5);
+}
+
+// --- 2. determinism replay: one stud family, one draw family, drawmaha ----
 
 #[test]
 fn badacey_fl_replays_deterministically() {
@@ -155,6 +193,34 @@ fn badacey_fl_replays_deterministically() {
         let cfg = config(spec.clone(), 60, 777, DealingMode::Duplicate);
         let mut bots = three_bots(23);
         run_match(&cfg, &mut bots, None, None).expect("badacey-fl")
+    };
+
+    let a = run();
+    let b = run();
+
+    assert_eq!(a.hands_played, b.hands_played);
+    assert_eq!(a.decks_played, b.decks_played);
+    assert_eq!(a.forfeited_by, b.forfeited_by);
+    for (oa, ob) in a.outcomes.iter().zip(&b.outcomes) {
+        assert_eq!(oa.name, ob.name);
+        assert_eq!(oa.total_net_chips, ob.total_net_chips, "{}", oa.name);
+        assert_eq!(oa.faults, ob.faults, "{}", oa.name);
+        assert_eq!(oa.stats.count(), ob.stats.count(), "{}", oa.name);
+        assert!(
+            (oa.stats.mean() - ob.stats.mean()).abs() < 1e-12,
+            "{} mean drifted between replays",
+            oa.name
+        );
+    }
+}
+
+#[test]
+fn drawmaha_dugi_fl_replays_deterministically() {
+    let spec = GameSpec::drawmaha_dugi_fl(STAKES);
+    let run = || {
+        let cfg = config(spec.clone(), 60, 555, DealingMode::Duplicate);
+        let mut bots = three_bots(31);
+        run_match(&cfg, &mut bots, None, None).expect("drawmaha-dugi-fl")
     };
 
     let a = run();
