@@ -90,10 +90,11 @@ pub struct MatchResult {
 /// *bots* through seats, not moving the button.
 ///
 /// For `deck_no` in `0..config.decks`, a deck is shuffled from
-/// `Rng64::from_seed_stream(config.seed, deck_no)`. It is replayed once per
-/// rotation: [`DealingMode::Seeded`] plays a single rotation
-/// `r = deck_no % n`; [`DealingMode::Duplicate`] plays every rotation
-/// `0..n`. For rotation `r`, bot `b` sits at seat `(b + r) % n`.
+/// `Rng64::from_seed_stream(config.seed, deck_no)` and a random base
+/// seating arrangement is drawn (see [`Seating`]). The deck is replayed
+/// once per rotation of that arrangement: [`DealingMode::Seeded`] plays a
+/// single rotation `r = deck_no % n`; [`DealingMode::Duplicate`] plays
+/// every rotation `0..n`. Bot `b` sits at seat `(base[b] + r) % n`.
 ///
 /// Each hand is driven via `HandState::new` / `to_act` / `legal_actions` /
 /// `apply` in a loop; bots receive seat-redacted events, the optional `sink`
