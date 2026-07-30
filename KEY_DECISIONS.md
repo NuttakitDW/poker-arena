@@ -50,6 +50,10 @@ snapshot-vs-events drift. Exception, deliberate: `legal` rides along
 because **action legality is arena-authoritative** — a bot deriving its own
 legality is how off-by-one-chip faults happen. The in-process
 `ActionRequest` stays rich: borrowed slices cost nothing and can't drift.
+Corollary: hand-history logs and transcripts record only the event stream
+(actions appear as `acted` events); `act` requests are per-bot derived
+state, and anything they carried — legal bounds included — is exactly
+recomputable by replaying the transcript through `HandState`.
 
 **The button always sits at seat 0.** The arena rotates *bots* through
 seats between hands, never the button, so a seat number is also a position
