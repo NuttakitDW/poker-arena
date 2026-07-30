@@ -1,0 +1,11 @@
+[package]
+name = "poker-wire"
+version.workspace = true
+edition.workspace = true
+description = "Wire protocol message definitions and JSON-lines framing for poker-arena."
+
+[dependencies]
+poker-core = { workspace = true, features = ["serde"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,24 @@
+[workspace]
+members = [
+    "crates/poker-core",
+    "crates/poker-wire",
+    "crates/poker-arena",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+description = "A poker bot competition arena supporting many poker variants."
+
+[workspace.dependencies]
+poker-core = { path = "crates/poker-core" }
+poker-wire = { path = "crates/poker-wire" }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+# The evaluator test suite sweeps all C(52,5) hands; keep tests optimized.
+[profile.test]
+opt-level = 2
