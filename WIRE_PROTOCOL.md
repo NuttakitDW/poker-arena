@@ -89,20 +89,23 @@ game family:
 
 ### `hand-start`
 
-Sent at the beginning of every hand. Seats may be permuted between hands
-(for variance reduction across a match), so `seat` is repeated per hand
-rather than assumed stable.
+Sent at the beginning of every hand: "a new hand is starting, and you sit
+at `seat`". Everything else about the hand — stacks, deals, the button —
+arrives in the event stream that follows.
 
-| field        | type      | meaning                                    |
-|--------------|-----------|---------------------------------------------|
-| `hand_no`    | u64       | 1-based hand counter for the match.         |
-| `seat`       | usize     | This bot's seat *for this hand*.            |
-| `button`     | usize     | Seat holding the button this hand.          |
-| `seat_count` | usize     | Number of seats.                            |
-| `stacks`     | `[u64]`   | Starting stack by seat, this hand.          |
+**The button is always seat 0.** The arena rotates *bots* through seats
+between hands (that is the variance-reduction mechanism), never the button,
+so a seat number is also a position: seat 0 is the button, seat 1 the small
+blind, seat 2 the big blind, and so on. Expect your `seat` to change from
+hand to hand.
+
+| field     | type  | meaning                             |
+|-----------|-------|--------------------------------------|
+| `hand_no` | u64   | 1-based hand counter for the match.  |
+| `seat`    | usize | This bot's seat *for this hand*.     |
 
 ```json
-{"t":"hand-start","hand_no":1,"seat":0,"button":1,"seat_count":2,"stacks":[10000,10000]}
+{"t":"hand-start","hand_no":1,"seat":0}
 ```
 
 ### `event`
@@ -345,7 +348,7 @@ the whole hand-end-to-hand-end cycle fits in ~20 lines:
 ```json
 {"t":"hello","proto":1,"game":{"id":"holdem-nl","display_name":"No-Limit Texas Hold'em","stakes":{"kind":"blinds","small_blind":50,"big_blind":100}},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
 {"t":"join","name":"check-call-bot"}
-{"t":"hand-start","hand_no":1,"seat":0,"button":1,"seat_count":2,"stacks":[10000,10000]}
+{"t":"hand-start","hand_no":1,"seat":0}
 {"t":"event","hand_no":1,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}
 {"t":"event","hand_no":1,"ev":{"event":"post","seat":0,"kind":"big-blind","amount":100,"all_in":false}}
 {"t":"event","hand_no":1,"ev":{"event":"deal-hole","seat":0,"cards":["As","Kd"],"count":2}}

@@ -304,12 +304,11 @@ impl Bot for WireBot {
 
     fn hand_start(&mut self, info: &HandStart) {
         self.hand_no = info.hand_no;
+        // Just "new hand, you sit here" — stacks/button/deals travel in the
+        // event stream (the arena always seats the button at seat 0).
         let msg = ArenaMsg::HandStart {
             hand_no: info.hand_no,
             seat: info.seat,
-            button: info.button,
-            seat_count: info.seat_count,
-            stacks: info.stacks.clone(),
         };
         self.send(&msg);
     }

@@ -37,15 +37,12 @@ pub enum ArenaMsg {
         starting_stack: u64,
         timeout_ms: Option<u64>,
     },
-    /// A new hand is starting; `seat` is where this bot sits for this hand
-    /// (seats may be permuted between hands).
-    HandStart {
-        hand_no: u64,
-        seat: usize,
-        button: usize,
-        seat_count: usize,
-        stacks: Vec<u64>,
-    },
+    /// A new hand is starting; `seat` is where this bot sits for this hand.
+    /// The arena always seats the button at seat 0 and rotates *bots*
+    /// between hands, so a seat number is also a position: seat 0 is the
+    /// button, seat 1 the small blind, and so on. Everything else about the
+    /// hand (stacks, the button, deals) arrives in the event stream.
+    HandStart { hand_no: u64, seat: usize },
     /// An observable event, already redacted for this bot's seat.
     Event { hand_no: u64, ev: WireEvent },
     /// It is this bot's turn; reply with a `BotMsg::Action` conforming to
@@ -440,9 +437,6 @@ mod tests {
             ArenaMsg::HandStart {
                 hand_no: 1,
                 seat: 0,
-                button: 1,
-                seat_count: 2,
-                stacks: vec![10_000, 10_000],
             },
             ArenaMsg::Event {
                 hand_no: 1,
