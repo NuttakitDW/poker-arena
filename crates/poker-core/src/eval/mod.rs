@@ -33,15 +33,34 @@
 //! distinct ranks all at low-rank ≤ 7 (i.e. Eight or lower, aces low).
 //! Non-qualifying hands return `None`.
 //!
-//! *Badugi*: from ≤4 cards, the best "badugi subset" has distinct ranks and
+//! *Badugi*: from ≤5 cards, the best "badugi subset" has distinct ranks and
 //! distinct suits; more cards beat fewer; ties break low (aces low).
 //! Encoding: `(subset_len << 20) | (0xF_FFFF - packed low-ranks descending)`.
+//! A badugi subset never exceeds four cards (there are only four suits), so
+//! the fifth card of a badacey hand only ever widens the search.
+//!
+//! *Badugi, aces high* (`BadugiAceHigh`, badeucy): the same subset rule and
+//! the same encoding shape, ranked with [`Rank::index`] (`Two = 0 …
+//! Ace = 12`) instead of the ace-low mapping. The nut badugi is therefore
+//! 5-4-3-2 rainbow, and any badugi holding an ace loses to every ace-free
+//! badugi of the same length.
+//!
+//! *Sixes-or-better high* (`SixesOrBetterHigh`, archie): the ordinary high
+//! encoding, returned only when the best five-card hand qualifies —
+//! `high_class() > OnePair`, or `OnePair` with the pair rank at Six or
+//! above. No-pair hands never qualify, however high; non-qualifying hands
+//! return `None`. Qualification is monotone in the encoding, so the best
+//! hand qualifies exactly when some subset does.
 //!
 //! ## N-card inputs
 //!
-//! `high`, `ace_to_five_low`, `deuce_to_seven_low`, and `eight_or_better`
-//! accept 5–7 cards and evaluate the best 5-card subset (C(7,5)=21 brute
-//! force — plenty fast for arena use). `badugi` accepts 1–4 cards.
+//! `high`, `ace_to_five_low`, `deuce_to_seven_low`, `eight_or_better`, and
+//! `sixes_or_better` accept 5–7 cards and evaluate the best 5-card subset
+//! (C(7,5)=21 brute force — plenty fast for arena use). `badugi` and
+//! `badugi_ace_high` accept 1–5 cards (4 for badugi proper, 5 for the
+//! badacey/badeucy split games).
+//!
+//! [`Rank::index`]: crate::card::Rank::index
 
 mod badugi;
 mod high;
@@ -60,6 +79,14 @@ pub enum EvalKind {
     /// A-5 low with the eight-or-better qualifier; may not qualify.
     EightOrBetterLow,
     Badugi,
+    /// Badugi with aces HIGH (badeucy): the nut badugi is 5-4-3-2 rainbow,
+    /// and an ace is the worst card. Same encoding shape as `Badugi` with
+    /// the ace-high rank order.
+    BadugiAceHigh,
+    /// High hands with the "sixes or better" qualifier (archie): qualifies
+    /// iff the best high hand is at least a pair of sixes (class above
+    /// OnePair, or OnePair with pair rank ≥ Six); may not qualify.
+    SixesOrBetterHigh,
 }
 
 /// Category of a *high* poker hand (also the class penalty scale for A-5).
@@ -122,13 +149,23 @@ pub fn eight_or_better(cards: &[Card]) -> Option<HandValue> {
     low::eight_or_better(cards)
 }
 
-/// Best badugi from up to 4 cards.
+/// Best badugi from up to 5 cards (badacey evaluates the best 4-of-5).
 pub fn badugi(cards: &[Card]) -> HandValue {
     badugi::evaluate(cards)
 }
 
+/// Best ace-high badugi (badeucy ranking) from up to 5 cards.
+pub fn badugi_ace_high(cards: &[Card]) -> HandValue {
+    badugi::evaluate_ace_high(cards)
+}
+
+/// Best qualifying sixes-or-better high hand from 5–7 cards, if any.
+pub fn sixes_or_better(cards: &[Card]) -> Option<HandValue> {
+    high::sixes_or_better(cards)
+}
+
 /// Dispatch by kind. `None` means "does not qualify" and can only occur for
-/// kinds with qualifiers (`EightOrBetterLow`).
+/// kinds with qualifiers (`EightOrBetterLow`, `SixesOrBetterHigh`).
 pub fn evaluate(kind: EvalKind, cards: &[Card]) -> Option<HandValue> {
     match kind {
         EvalKind::High => Some(high(cards)),
@@ -136,6 +173,8 @@ pub fn evaluate(kind: EvalKind, cards: &[Card]) -> Option<HandValue> {
         EvalKind::DeuceToSevenLow => Some(deuce_to_seven_low(cards)),
         EvalKind::EightOrBetterLow => eight_or_better(cards),
         EvalKind::Badugi => Some(badugi(cards)),
+        EvalKind::BadugiAceHigh => Some(badugi_ace_high(cards)),
+        EvalKind::SixesOrBetterHigh => sixes_or_better(cards),
     }
 }
 

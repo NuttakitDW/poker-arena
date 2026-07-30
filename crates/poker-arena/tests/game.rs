@@ -1,9 +1,10 @@
-//! Runner-level smoke tests for the stud and draw families: full matches
-//! driven end to end through [`run_match`] (and, for one case, over the wire
-//! protocol against the real `wire-caller` binary), checking arena-level
-//! invariants — completion, zero-sum totals, zero faults, determinism — for
-//! every stud/draw registry id. Hand-by-hand rules for these families are
-//! `poker-core/tests/stud.rs` and `poker-core/tests/draw.rs`'s job.
+//! Runner-level smoke tests for the stud, draw and split-pot families: full
+//! matches driven end to end through [`run_match`] (and, for one case, over
+//! the wire protocol against the real `wire-caller` binary), checking
+//! arena-level invariants — completion, zero-sum totals, zero faults,
+//! determinism — for every stud/draw/split registry id. Hand-by-hand rules
+//! for these families are `poker-core/tests/stud.rs`, `draw.rs` and
+//! `split.rs`'s job.
 
 use std::time::Duration;
 
@@ -31,6 +32,10 @@ const STUD_DRAW_IDS: [&str; 7] = [
     "badugi-fl",
     "5cd-nl",
 ];
+
+/// The four split-pot ids: three five-card triple-draw split games plus
+/// five-card Omaha hi-lo.
+const SPLIT_IDS: [&str; 4] = ["badacey-fl", "badeucy-fl", "archie-fl", "bigo-pl"];
 
 fn config(spec: GameSpec, decks: u64, seed: u64, dealing: DealingMode) -> MatchConfig {
     MatchConfig {
@@ -84,7 +89,92 @@ fn every_m3_registry_id_completes_cleanly() {
     }
 }
 
+/// The same mixed lineup at an arbitrary seat count: Caller, Shover, and
+/// Random fillers, which between them cover every decision family.
+fn mixed_bots(n: usize, seed: u64) -> Vec<Box<dyn Bot>> {
+    let mut bots: Vec<Box<dyn Bot>> = vec![
+        Box::new(Caller::new("caller")),
+        Box::new(Shover::new("shover")),
+    ];
+    for i in bots.len()..n {
+        bots.push(Box::new(Random::new(format!("random{i}"), seed + i as u64)));
+    }
+    bots
+}
+
+fn assert_clean(id: &str, result: &poker_arena::runner::MatchResult, decks: u64) {
+    assert_eq!(result.forfeited_by, None, "{id} forfeited");
+    assert_eq!(result.hands_played, decks, "{id} hand count");
+    assert!(
+        result.outcomes.iter().all(|o| o.faults == 0),
+        "{id}: unexpected faults {:?}",
+        result
+            .outcomes
+            .iter()
+            .map(|o| (o.name.as_str(), o.faults))
+            .collect::<Vec<_>>()
+    );
+    let sum: i64 = result.outcomes.iter().map(|o| o.total_net_chips).sum();
+    assert_eq!(sum, 0, "{id} not zero-sum");
+}
+
+// --- 1b. every split-pot id: a run_match smoke ----------------------------
+
+#[test]
+fn every_split_registry_id_completes_cleanly() {
+    let decks = 80;
+    for &id in &SPLIT_IDS {
+        let spec = GameSpec::by_id(id, STAKES).unwrap_or_else(|| panic!("unknown id {id}"));
+        let cfg = config(spec, decks, 1_234, DealingMode::Seeded);
+        let mut bots = three_bots(5);
+        let result = run_match(&cfg, &mut bots, None, None)
+            .unwrap_or_else(|e| panic!("{id} failed to run: {e}"));
+        assert_clean(id, &result, decks);
+    }
+}
+
+/// Big O seats up to nine (5 × 9 + 5 = 50 cards); six-handed exercises the
+/// pot-limit sizing and the hi-lo settlement with a full-ish table, which
+/// the three-handed sweep above never reaches.
+#[test]
+fn bigo_pl_six_handed_completes_cleanly() {
+    let decks = 60;
+    let cfg = config(GameSpec::bigo_pl(STAKES), decks, 4_242, DealingMode::Seeded);
+    let mut bots = mixed_bots(6, 17);
+    let result = run_match(&cfg, &mut bots, None, None).expect("bigo-pl six-handed");
+    assert_clean("bigo-pl", &result, decks);
+    assert_eq!(result.outcomes.len(), 6);
+}
+
 // --- 2. determinism replay: one stud family, one draw family --------------
+
+#[test]
+fn badacey_fl_replays_deterministically() {
+    let spec = GameSpec::badacey_fl(STAKES);
+    let run = || {
+        let cfg = config(spec.clone(), 60, 777, DealingMode::Duplicate);
+        let mut bots = three_bots(23);
+        run_match(&cfg, &mut bots, None, None).expect("badacey-fl")
+    };
+
+    let a = run();
+    let b = run();
+
+    assert_eq!(a.hands_played, b.hands_played);
+    assert_eq!(a.decks_played, b.decks_played);
+    assert_eq!(a.forfeited_by, b.forfeited_by);
+    for (oa, ob) in a.outcomes.iter().zip(&b.outcomes) {
+        assert_eq!(oa.name, ob.name);
+        assert_eq!(oa.total_net_chips, ob.total_net_chips, "{}", oa.name);
+        assert_eq!(oa.faults, ob.faults, "{}", oa.name);
+        assert_eq!(oa.stats.count(), ob.stats.count(), "{}", oa.name);
+        assert!(
+            (oa.stats.mean() - ob.stats.mean()).abs() < 1e-12,
+            "{} mean drifted between replays",
+            oa.name
+        );
+    }
+}
 
 #[test]
 fn stud_fl_and_27td_fl_replay_deterministically() {

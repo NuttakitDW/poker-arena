@@ -184,8 +184,12 @@ pub struct BetRoundSpec {
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum PotSplit {
     Hi(EvalKind),
-    /// Split pot: half to `hi`, half to the best qualifying `lo`; if no hand
-    /// qualifies for low, `hi` scoops. Odd chip goes to the hi side.
+    /// Split pot: half to the best qualifying `hi`, half to the best
+    /// qualifying `lo` (total evaluators always qualify). If only one side
+    /// has a qualifier anywhere, it scoops; if NEITHER side qualifies
+    /// (possible only when both kinds are qualifiers, e.g. archie), the pot
+    /// splits evenly among the showdown players. Odd chip goes to the hi
+    /// side of a split.
     HiLo {
         hi: EvalKind,
         lo: EvalKind,
@@ -304,12 +308,84 @@ impl GameSpec {
     /// Omaha differs from hold'em only in hole-card count and the
     /// exactly-two showdown constraint; streets and blinds are identical.
     fn omaha_base(stakes: Stakes) -> GameSpec {
+        Self::omaha_base_n(stakes, 4)
+    }
+
+    /// Omaha skeleton with `hole` hole cards (4 = Omaha, 5 = Big O).
+    fn omaha_base_n(stakes: Stakes, hole: u8) -> GameSpec {
         let mut spec = Self::holdem_base(stakes);
         spec.id = "omaha";
         spec.display_name = "Omaha";
-        spec.streets[0].deal = DealSpec::HolePrivate(4);
+        spec.streets[0].deal = DealSpec::HolePrivate(hole);
         spec.showdown.hole_usage = HoleUsage::ExactlyTwo;
         spec
+    }
+
+    /// Big O (five-card Omaha hi-lo eight-or-better), pot limit. Nine seats
+    /// fit exactly: 5 × 9 + 5 = 50 ≤ 52.
+    pub fn bigo_pl(stakes: Stakes) -> GameSpec {
+        GameSpec {
+            id: "bigo-pl",
+            display_name: "Big O (Five-Card Omaha Hi-Lo)",
+            betting: BettingKind::PotLimit,
+            showdown: Self::omaha8_showdown(),
+            ..Self::omaha_base_n(stakes, 5)
+        }
+    }
+
+    /// Badacey: five-card triple draw, split between the best badugi (aces
+    /// low) and the best A-5 low. Both halves always exist, so the pot
+    /// always splits.
+    pub fn badacey_fl(stakes: Stakes) -> GameSpec {
+        GameSpec {
+            id: "badacey-fl",
+            display_name: "Badacey",
+            showdown: ShowdownSpec {
+                pot_split: PotSplit::HiLo {
+                    hi: EvalKind::Badugi,
+                    lo: EvalKind::AceToFiveLow,
+                },
+                hole_usage: HoleUsage::AllOwn,
+            },
+            ..Self::triple_draw_base(stakes, 5)
+        }
+    }
+
+    /// Badeucy: five-card triple draw, split between the best ace-HIGH
+    /// badugi and the best 2-7 low (aces high in both halves). Both halves
+    /// always exist, so the pot always splits.
+    pub fn badeucy_fl(stakes: Stakes) -> GameSpec {
+        GameSpec {
+            id: "badeucy-fl",
+            display_name: "Badeucy",
+            showdown: ShowdownSpec {
+                pot_split: PotSplit::HiLo {
+                    hi: EvalKind::BadugiAceHigh,
+                    lo: EvalKind::DeuceToSevenLow,
+                },
+                hole_usage: HoleUsage::AllOwn,
+            },
+            ..Self::triple_draw_base(stakes, 5)
+        }
+    }
+
+    /// Archie: five-card triple draw, split between high (sixes-or-better
+    /// qualifier) and A-5 low (eight-or-better qualifier). One qualifying
+    /// side scoops; if neither side qualifies anywhere, the pot splits
+    /// evenly among the showdown players.
+    pub fn archie_fl(stakes: Stakes) -> GameSpec {
+        GameSpec {
+            id: "archie-fl",
+            display_name: "Archie",
+            showdown: ShowdownSpec {
+                pot_split: PotSplit::HiLo {
+                    hi: EvalKind::SixesOrBetterHigh,
+                    lo: EvalKind::EightOrBetterLow,
+                },
+                hole_usage: HoleUsage::AllOwn,
+            },
+            ..Self::triple_draw_base(stakes, 5)
+        }
     }
 
     fn omaha8_showdown() -> ShowdownSpec {
@@ -334,6 +410,10 @@ impl GameSpec {
             "stud8-fl" => Some(Self::stud8_fl(stakes)),
             "razz-fl" => Some(Self::razz_fl(stakes)),
             "27td-fl" => Some(Self::td27_fl(stakes)),
+            "badacey-fl" => Some(Self::badacey_fl(stakes)),
+            "badeucy-fl" => Some(Self::badeucy_fl(stakes)),
+            "archie-fl" => Some(Self::archie_fl(stakes)),
+            "bigo-pl" => Some(Self::bigo_pl(stakes)),
             "a5td-fl" => Some(Self::a5td_fl(stakes)),
             "badugi-fl" => Some(Self::badugi_fl(stakes)),
             "5cd-nl" => Some(Self::fcd_nl(stakes)),
@@ -356,6 +436,10 @@ impl GameSpec {
             "a5td-fl",
             "badugi-fl",
             "5cd-nl",
+            "badacey-fl",
+            "badeucy-fl",
+            "archie-fl",
+            "bigo-pl",
         ]
     }
 
@@ -692,6 +776,86 @@ mod tests {
                 big_blind: 100,
             }
         );
+    }
+
+    #[test]
+    fn split_pot_specs_pair_the_expected_evaluators() {
+        let expected = [
+            (
+                GameSpec::badacey_fl(BLINDS),
+                EvalKind::Badugi,
+                EvalKind::AceToFiveLow,
+            ),
+            (
+                GameSpec::badeucy_fl(BLINDS),
+                EvalKind::BadugiAceHigh,
+                EvalKind::DeuceToSevenLow,
+            ),
+            (
+                GameSpec::archie_fl(BLINDS),
+                EvalKind::SixesOrBetterHigh,
+                EvalKind::EightOrBetterLow,
+            ),
+            (
+                GameSpec::bigo_pl(BLINDS),
+                EvalKind::High,
+                EvalKind::EightOrBetterLow,
+            ),
+        ];
+        for (spec, hi, lo) in expected {
+            assert_eq!(
+                spec.showdown.pot_split,
+                PotSplit::HiLo { hi, lo },
+                "{}",
+                spec.id
+            );
+        }
+    }
+
+    #[test]
+    fn split_pot_draw_specs_are_five_card_triple_draws() {
+        for spec in [
+            GameSpec::badacey_fl(BLINDS),
+            GameSpec::badeucy_fl(BLINDS),
+            GameSpec::archie_fl(BLINDS),
+        ] {
+            assert_eq!(spec.showdown.hole_usage, HoleUsage::AllOwn, "{}", spec.id);
+            assert_eq!(spec.seats, 2..=6, "{}", spec.id);
+            assert_eq!(
+                spec.streets[0].deal,
+                DealSpec::HolePrivate(5),
+                "{}",
+                spec.id
+            );
+            assert_eq!(
+                spec.streets
+                    .iter()
+                    .filter(|s| matches!(s.deal, DealSpec::Draw { max: 5 }))
+                    .count(),
+                3,
+                "{} must have three draws",
+                spec.id
+            );
+        }
+    }
+
+    #[test]
+    fn bigo_deals_five_hole_cards_to_up_to_nine_seats() {
+        let spec = GameSpec::bigo_pl(BLINDS);
+        assert_eq!(spec.streets[0].deal, DealSpec::HolePrivate(5));
+        assert_eq!(spec.showdown.hole_usage, HoleUsage::ExactlyTwo);
+        assert_eq!(spec.betting, BettingKind::PotLimit);
+        // 5 per seat plus a five-card board must fit in one deck.
+        assert_eq!(*spec.seats.end() as usize * 5 + 5, 50);
+    }
+
+    #[test]
+    fn every_new_id_round_trips_through_the_registry() {
+        for id in ["badacey-fl", "badeucy-fl", "archie-fl", "bigo-pl"] {
+            assert!(GameSpec::known_ids().contains(&id), "{id} not listed");
+            let spec = GameSpec::by_id(id, BLINDS).unwrap_or_else(|| panic!("{id} unknown"));
+            assert_eq!(spec.id, id);
+        }
     }
 
     #[test]

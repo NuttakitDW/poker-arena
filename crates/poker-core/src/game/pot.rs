@@ -95,7 +95,9 @@ pub fn build_pots(contributions: &[Chips], folded: &[bool]) -> Vec<Pot> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShowdownEntry {
     pub seat: Seat,
-    pub hi: HandValue,
+    /// Qualifying high value, if any. Total evaluators (everything but
+    /// archie's sixes-or-better) always produce `Some`.
+    pub hi: Option<HandValue>,
     /// Qualifying low value, if the game has one and this hand qualifies.
     pub lo: Option<HandValue>,
 }
@@ -114,13 +116,22 @@ pub struct PotAward {
 /// Contract:
 /// - `hands` contains exactly the non-folded seats. Seats missing from
 ///   `hands` never win anything.
-/// - Hi-only (`has_low == false`): each pot goes to its best eligible hi
-///   hand; ties split evenly, remainder chips (at most `winners-1`) go one
-///   each to the earliest tied winners in `odd_chip_order`.
-/// - Hi-lo (`has_low == true`): per pot, if any eligible hand has a
-///   qualifying low, the pot splits hi/lo with the *odd chip to the hi
-///   side*; each side then resolves ties as above. If no eligible low
-///   qualifies, the whole pot goes to hi with `PotSide::Whole`.
+/// - Per pot, the *candidates* are its eligible entries with a qualifying
+///   value on that side: hi candidates have `hi.is_some()`, lo candidates
+///   have `lo.is_some()` (and only exist when `has_low`). Total evaluators
+///   always qualify, so a side is candidate-less only for a qualifier kind
+///   nobody cleared (`EightOrBetterLow`, `SixesOrBetterHigh`).
+/// - Both sides have candidates: the pot splits hi/lo with the *odd chip to
+///   the hi side*; each side then resolves ties as below.
+/// - Exactly one side has candidates: that side scoops the pot with
+///   `PotSide::Whole` — the hi-only games' ordinary path, and equally the
+///   omaha8/stud8 "no qualifying low" path.
+/// - *Neither* side has candidates (possible only when both kinds are
+///   qualifiers, i.e. archie): the whole pot splits evenly among **all**
+///   eligible entries, remainders by `odd_chip_order` like any other split.
+/// - Ties within a side split evenly; remainder chips (at most
+///   `winners - 1`) go one each to the earliest tied winners in
+///   `odd_chip_order`.
 /// - `odd_chip_order`: all seats, in clockwise order starting left of the
 ///   button; used for every remainder distribution.
 /// - Total awarded == total pot amounts, always, chip for chip.
@@ -142,6 +153,10 @@ pub fn award_pots(
             "pot {pot_idx} has no eligible hand at showdown (engine invariant violated)"
         );
 
+        let hi_entries: Vec<(Seat, HandValue)> = eligible
+            .iter()
+            .filter_map(|h| h.hi.map(|hi| (h.seat, hi)))
+            .collect();
         let lo_entries: Vec<(Seat, HandValue)> = if has_low {
             eligible
                 .iter()
@@ -151,34 +166,36 @@ pub fn award_pots(
             Vec::new()
         };
 
-        if !has_low || lo_entries.is_empty() {
-            let hi_entries: Vec<(Seat, HandValue)> =
-                eligible.iter().map(|h| (h.seat, h.hi)).collect();
-            let winners = split_amount(pot.amount, &tie_winners(&hi_entries), odd_chip_order);
+        let mut whole = |winners: Vec<Seat>| {
             awards.push(PotAward {
                 pot: pot_idx,
                 side: PotSide::Whole,
-                winners,
+                winners: split_amount(pot.amount, &winners, odd_chip_order),
             });
-            continue;
-        }
+        };
 
-        // Qualifying low present: split with the odd chip going to hi.
-        let lo_half = pot.amount / 2;
-        let hi_half = pot.amount - lo_half;
-        let hi_entries: Vec<(Seat, HandValue)> = eligible.iter().map(|h| (h.seat, h.hi)).collect();
-        let hi_winners = split_amount(hi_half, &tie_winners(&hi_entries), odd_chip_order);
-        let lo_winners = split_amount(lo_half, &tie_winners(&lo_entries), odd_chip_order);
-        awards.push(PotAward {
-            pot: pot_idx,
-            side: PotSide::Hi,
-            winners: hi_winners,
-        });
-        awards.push(PotAward {
-            pot: pot_idx,
-            side: PotSide::Lo,
-            winners: lo_winners,
-        });
+        match (hi_entries.is_empty(), lo_entries.is_empty()) {
+            // Both sides contested: split with the odd chip going to hi.
+            (false, false) => {
+                let lo_half = pot.amount / 2;
+                let hi_half = pot.amount - lo_half;
+                awards.push(PotAward {
+                    pot: pot_idx,
+                    side: PotSide::Hi,
+                    winners: split_amount(hi_half, &tie_winners(&hi_entries), odd_chip_order),
+                });
+                awards.push(PotAward {
+                    pot: pot_idx,
+                    side: PotSide::Lo,
+                    winners: split_amount(lo_half, &tie_winners(&lo_entries), odd_chip_order),
+                });
+            }
+            (false, true) => whole(tie_winners(&hi_entries)),
+            (true, false) => whole(tie_winners(&lo_entries)),
+            // Nobody cleared either qualifier: everyone still standing gets
+            // their share back rather than the pot evaporating.
+            (true, true) => whole(eligible.iter().map(|h| h.seat).collect()),
+        }
     }
     awards
 }
@@ -239,7 +256,7 @@ mod tests {
     fn hi(seat: Seat, v: u32) -> ShowdownEntry {
         ShowdownEntry {
             seat,
-            hi: HandValue(v),
+            hi: Some(HandValue(v)),
             lo: None,
         }
     }
@@ -247,7 +264,26 @@ mod tests {
     fn hilo(seat: Seat, hi_v: u32, lo_v: u32) -> ShowdownEntry {
         ShowdownEntry {
             seat,
-            hi: HandValue(hi_v),
+            hi: Some(HandValue(hi_v)),
+            lo: Some(HandValue(lo_v)),
+        }
+    }
+
+    /// A hand that qualifies for neither side (archie's "no sixes, no
+    /// eight-low" case).
+    fn neither(seat: Seat) -> ShowdownEntry {
+        ShowdownEntry {
+            seat,
+            hi: None,
+            lo: None,
+        }
+    }
+
+    /// A hand with a qualifying low but no qualifying high.
+    fn lo_only(seat: Seat, lo_v: u32) -> ShowdownEntry {
+        ShowdownEntry {
+            seat,
+            hi: None,
             lo: Some(HandValue(lo_v)),
         }
     }
@@ -592,6 +628,111 @@ mod tests {
             .flat_map(|a| a.winners.iter().map(|&(_, c)| c))
             .sum();
         assert_eq!(total, 250);
+    }
+
+    // ---- qualifier-only sides (archie) -----------------------------------
+
+    #[test]
+    fn only_the_low_qualifies_and_scoops_the_whole_pot() {
+        let pots = vec![pot(100, &[0, 1, 2])];
+        let hands = vec![neither(0), lo_only(1, 30), lo_only(2, 10)];
+        let awards = award_pots(&pots, &hands, true, &[0, 1, 2]);
+        assert_eq!(
+            awards,
+            vec![PotAward {
+                pot: 0,
+                side: PotSide::Whole,
+                winners: vec![(1, 100)],
+            }]
+        );
+    }
+
+    #[test]
+    fn only_the_high_qualifies_and_scoops_the_whole_pot() {
+        let pots = vec![pot(100, &[0, 1])];
+        let hands = vec![hi(0, 50), neither(1)];
+        let awards = award_pots(&pots, &hands, true, &[0, 1]);
+        assert_eq!(
+            awards,
+            vec![PotAward {
+                pot: 0,
+                side: PotSide::Whole,
+                winners: vec![(0, 100)],
+            }]
+        );
+    }
+
+    #[test]
+    fn neither_side_qualifies_splits_evenly_among_all_eligible() {
+        // 100 chips, three qualifier-less hands: 33 each with the odd chip
+        // to the earliest seat in `odd_chip_order`.
+        let pots = vec![pot(100, &[0, 1, 2])];
+        let hands = vec![neither(0), neither(1), neither(2)];
+        let awards = award_pots(&pots, &hands, true, &[2, 0, 1]);
+        assert_eq!(
+            awards,
+            vec![PotAward {
+                pot: 0,
+                side: PotSide::Whole,
+                winners: vec![(0, 33), (1, 33), (2, 34)],
+            }]
+        );
+        let total: Chips = awards
+            .iter()
+            .flat_map(|a| a.winners.iter().map(|&(_, c)| c))
+            .sum();
+        assert_eq!(total, 100);
+    }
+
+    #[test]
+    fn qualifier_sides_are_decided_per_pot() {
+        // Seat 0's qualifying high is locked into the main pot; the side pot
+        // has no qualifier at all and splits evenly between seats 1 and 2.
+        let pots = vec![pot(150, &[0, 1, 2]), pot(101, &[1, 2])];
+        let hands = vec![hi(0, 50), neither(1), lo_only(2, 7)];
+        let awards = award_pots(&pots, &hands, true, &[1, 2, 0]);
+        assert_eq!(
+            awards,
+            vec![
+                PotAward {
+                    pot: 0,
+                    side: PotSide::Hi,
+                    winners: vec![(0, 75)],
+                },
+                PotAward {
+                    pot: 0,
+                    side: PotSide::Lo,
+                    winners: vec![(2, 75)],
+                },
+                PotAward {
+                    pot: 1,
+                    side: PotSide::Whole,
+                    winners: vec![(2, 101)],
+                },
+            ]
+        );
+        let total: Chips = awards
+            .iter()
+            .flat_map(|a| a.winners.iter().map(|&(_, c)| c))
+            .sum();
+        assert_eq!(total, 251);
+    }
+
+    #[test]
+    fn no_low_game_with_no_hi_qualifier_still_conserves_chips() {
+        // Defensively unreachable with the current specs (no hi-only game
+        // uses a qualifier kind), but the even split must hold anyway.
+        let pots = vec![pot(7, &[0, 1])];
+        let hands = vec![neither(0), neither(1)];
+        let awards = award_pots(&pots, &hands, false, &[1, 0]);
+        assert_eq!(
+            awards,
+            vec![PotAward {
+                pot: 0,
+                side: PotSide::Whole,
+                winners: vec![(0, 3), (1, 4)],
+            }]
+        );
     }
 
     #[test]

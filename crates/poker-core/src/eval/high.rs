@@ -1,7 +1,7 @@
 //! Standard high-hand evaluation. Encoding contract in `eval/mod.rs` docs.
 
 use super::{HandClass, HandValue};
-use crate::card::Card;
+use crate::card::{Card, Rank};
 
 /// Best high hand from 5–7 cards. Panics if `cards.len() < 5` (engine bug,
 /// not user input). Must accept duplicate-free input only; behavior with
@@ -13,6 +13,21 @@ pub(super) fn evaluate(cards: &[Card]) -> HandValue {
         .map(rank_five)
         .max()
         .expect("five_card_combos yields at least one combination")
+}
+
+/// Best high hand from 5–7 cards, but only if it clears archie's
+/// "sixes or better" bar: any class above [`HandClass::OnePair`], or a pair
+/// of Sixes or better. A no-pair hand never qualifies, however high.
+///
+/// Qualification is monotone in the encoding (class first, then the pair
+/// rank in the top tiebreak slot), so testing the *best* hand is the same as
+/// asking whether any five-card subset qualifies.
+pub(super) fn sixes_or_better(cards: &[Card]) -> Option<HandValue> {
+    let best = evaluate(cards);
+    let class = best.high_class();
+    let qualifies = class > HandClass::OnePair
+        || (class == HandClass::OnePair && (best.0 >> 16) & 0xF >= Rank::Six.index() as u32);
+    qualifies.then_some(best)
 }
 
 /// Rank exactly five cards. Exposed within the eval module for the lowball
@@ -262,6 +277,55 @@ mod tests {
         let base_flush = five("As Ks 8s 6s 2s");
         let with_extra = evaluate(&parse_cards("As Ks 8s 6s 2s 3d 4h").unwrap());
         assert!(with_extra >= base_flush);
+    }
+
+    // ---- sixes-or-better qualifier (archie) ----------------------------
+
+    fn sob(s: &str) -> Option<HandValue> {
+        sixes_or_better(&parse_cards(s).unwrap())
+    }
+
+    #[test]
+    fn sixes_or_better_needs_at_least_a_pair_of_sixes() {
+        assert_eq!(sob("6c 6d Kh Qs 2c"), Some(five("6c 6d Kh Qs 2c")));
+        assert!(sob("5c 5d Kh Qs 2c").is_none());
+        // The best possible pair of fives still misses; the worst pair of
+        // sixes clears.
+        assert!(sob("5c 5d Ah Ks Qc").is_none());
+        assert!(sob("6c 6d 4h 3s 2c").is_some());
+    }
+
+    #[test]
+    fn sixes_or_better_never_qualifies_a_no_pair_hand() {
+        // Ace-high, king-high, an eight-high wheel-shaped no-pair hand:
+        // HighCard is below the bar no matter what its kickers are.
+        assert!(sob("Ac Kd Qh Js 9c").is_none());
+        assert!(sob("8c 6d 4h 3s 2c").is_none());
+    }
+
+    #[test]
+    fn sixes_or_better_qualifies_every_class_above_one_pair() {
+        for hand in [
+            "2c 2d 3h 3s Kc", // two pair, deuces and treys
+            "2c 2d 2h Ks Qc", // trips
+            "6s 5d 4h 3c 2s", // straight
+            "Ks 8s 6s 4s 2s", // flush
+            "2c 2d 2h 3s 3c", // full house
+            "2c 2d 2h 2s 3c", // quads
+            "6s 5s 4s 3s 2s", // straight flush
+        ] {
+            assert!(sob(hand).is_some(), "{hand} must qualify");
+        }
+    }
+
+    #[test]
+    fn sixes_or_better_qualifies_on_the_best_seven_card_hand() {
+        // Seven cards whose best five is a pair of sevens; the qualifier
+        // reads the best hand, not the first five cards.
+        let cards = parse_cards("7c 7d 5h 4s 3c 2d 9h").unwrap();
+        assert_eq!(sixes_or_better(&cards), Some(evaluate(&cards)));
+        // No five-card subset here pairs anything at all.
+        assert!(sixes_or_better(&parse_cards("Ac Kd Qh Js 9c 7d 5h").unwrap()).is_none());
     }
 
     /// Omaha's `ExactlyTwo` usage requires exactly two hole cards; a player

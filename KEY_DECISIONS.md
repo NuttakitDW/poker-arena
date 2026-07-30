@@ -18,7 +18,7 @@ dragging in match machinery.
 **Variants are data, not code.** A `GameSpec` is a sequence of streets
 (deal + optional betting round), a betting structure, forced bets, and a
 showdown rule; one engine interprets all of it. Adding a game means writing
-a constructor, not engine code — all twelve registry games share the same
+a constructor, not engine code — all sixteen registry games share the same
 `HandState`. Family quirks (bring-in, upcard ordering, draw phases) are
 enum-encoded hooks the engine understands, not per-variant subclasses.
 
@@ -166,6 +166,17 @@ and is announced to bots in the wire `hello`'s betting structure.
 round ends — unlike the big blind, the bring-in was that player's own
 chosen bet, and nobody may raise their own bet. (The BB option exists
 precisely because a blind is not a chosen bet.)
+
+**Split-pot semantics are symmetric-qualifier.** `HiLo` splits award each
+half to its best *qualifying* hand; total evaluators (badugi, plain lows,
+high) always qualify, so badacey/badeucy split unconditionally while
+omaha8/stud8 keep the classic "no low → high scoops". When both sides are
+qualifiers (archie: sixes-or-better high, eight-or-better low), one
+qualifying side scoops, and if *neither* qualifies the pot splits evenly
+among the showdown players — pot carryover was rejected as incompatible
+with per-hand scoring and i.i.d. observations. Badeucy plays aces high in
+*both* halves (nut badugi 5-4-3-2 rainbow), badacey aces low in both;
+that pairing is what distinguishes the two games.
 
 **Stud seats cap at 7; draw games reshuffle discards.** 7 × 7 = 49 ≤ 52,
 so stud never exhausts the deck (the 8-handed shared-community-card

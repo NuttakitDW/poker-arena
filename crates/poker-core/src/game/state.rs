@@ -168,7 +168,7 @@ use super::event::{Event, PostKind, PotSide};
 use super::pot::{PotAward, ShowdownEntry, award_pots, build_pots};
 use super::spec::{BettingKind, DealSpec, FirstToAct, ForcedBets, GameSpec, PotSplit};
 use crate::card::{Card, Deck};
-use crate::eval::{HandValue, best_with_usage};
+use crate::eval::best_with_usage;
 use crate::rng::Rng64;
 
 /// Errors constructing a hand.
@@ -1104,11 +1104,7 @@ impl HandState {
                 hi,
                 lo,
             });
-            entries.push(ShowdownEntry {
-                seat,
-                hi: hi.unwrap_or(HandValue(0)),
-                lo,
-            });
+            entries.push(ShowdownEntry { seat, hi, lo });
             showdown_seats.push(seat);
         }
         let pots = build_pots(&self.contrib, &self.folded);
