@@ -178,30 +178,27 @@ pub struct BetRoundSpec {
     pub first_to_act: FirstToAct,
 }
 
-/// How pots are contested at showdown.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// One contested half of the pot: an evaluator plus its hole-usage rule.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
-pub enum PotSplit {
-    Hi(EvalKind),
-    /// Split pot: half to the best qualifying `hi`, half to the best
-    /// qualifying `lo` (total evaluators always qualify). If only one side
-    /// has a qualifier anywhere, it scoops; if NEITHER side qualifies
-    /// (possible only when both kinds are qualifiers, e.g. archie), the pot
-    /// splits evenly among the showdown players. Odd chip goes to the hi
-    /// side of a split.
-    HiLo {
-        hi: EvalKind,
-        lo: EvalKind,
-    },
+pub struct ShowdownSide {
+    pub kind: EvalKind,
+    /// How this side combines hole cards with the board — per side, because
+    /// drawmaha contests the omaha half `ExactlyTwo` and the in-hand half
+    /// `AllOwn` from the same five cards.
+    pub usage: HoleUsage,
 }
 
-/// Showdown rules.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Showdown rules: the hi side always exists; `lo` makes it a split game.
+/// Each half goes to its best *qualifying* hand (total evaluators always
+/// qualify). One qualifying side scoops; if neither side qualifies anywhere
+/// (both kinds qualifiers, e.g. archie), the pot splits evenly among the
+/// showdown players. Odd chip to the hi side of a split.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ShowdownSpec {
-    pub pot_split: PotSplit,
-    pub hole_usage: HoleUsage,
+    pub hi: ShowdownSide,
+    pub lo: Option<ShowdownSide>,
 }
 
 /// A complete variant definition.
@@ -267,8 +264,11 @@ impl GameSpec {
                 street("river", DealSpec::Community(1), Big, LeftOfButton),
             ],
             showdown: ShowdownSpec {
-                pot_split: PotSplit::Hi(EvalKind::High),
-                hole_usage: HoleUsage::Any,
+                hi: ShowdownSide {
+                    kind: EvalKind::High,
+                    usage: HoleUsage::Any,
+                },
+                lo: None,
             },
         }
     }
@@ -317,7 +317,10 @@ impl GameSpec {
         spec.id = "omaha";
         spec.display_name = "Omaha";
         spec.streets[0].deal = DealSpec::HolePrivate(hole);
-        spec.showdown.hole_usage = HoleUsage::ExactlyTwo;
+        spec.showdown.hi.usage = HoleUsage::ExactlyTwo;
+        if let Some(lo) = &mut spec.showdown.lo {
+            lo.usage = HoleUsage::ExactlyTwo;
+        }
         spec
     }
 
@@ -341,11 +344,14 @@ impl GameSpec {
             id: "badacey-fl",
             display_name: "Badacey",
             showdown: ShowdownSpec {
-                pot_split: PotSplit::HiLo {
-                    hi: EvalKind::Badugi,
-                    lo: EvalKind::AceToFiveLow,
+                hi: ShowdownSide {
+                    kind: EvalKind::Badugi,
+                    usage: HoleUsage::AllOwn,
                 },
-                hole_usage: HoleUsage::AllOwn,
+                lo: Some(ShowdownSide {
+                    kind: EvalKind::AceToFiveLow,
+                    usage: HoleUsage::AllOwn,
+                }),
             },
             ..Self::triple_draw_base(stakes, 5)
         }
@@ -359,11 +365,14 @@ impl GameSpec {
             id: "badeucy-fl",
             display_name: "Badeucy",
             showdown: ShowdownSpec {
-                pot_split: PotSplit::HiLo {
-                    hi: EvalKind::BadugiAceHigh,
-                    lo: EvalKind::DeuceToSevenLow,
+                hi: ShowdownSide {
+                    kind: EvalKind::BadugiAceHigh,
+                    usage: HoleUsage::AllOwn,
                 },
-                hole_usage: HoleUsage::AllOwn,
+                lo: Some(ShowdownSide {
+                    kind: EvalKind::DeuceToSevenLow,
+                    usage: HoleUsage::AllOwn,
+                }),
             },
             ..Self::triple_draw_base(stakes, 5)
         }
@@ -378,11 +387,14 @@ impl GameSpec {
             id: "archie-fl",
             display_name: "Archie",
             showdown: ShowdownSpec {
-                pot_split: PotSplit::HiLo {
-                    hi: EvalKind::SixesOrBetterHigh,
-                    lo: EvalKind::EightOrBetterLow,
+                hi: ShowdownSide {
+                    kind: EvalKind::SixesOrBetterHigh,
+                    usage: HoleUsage::AllOwn,
                 },
-                hole_usage: HoleUsage::AllOwn,
+                lo: Some(ShowdownSide {
+                    kind: EvalKind::EightOrBetterLow,
+                    usage: HoleUsage::AllOwn,
+                }),
             },
             ..Self::triple_draw_base(stakes, 5)
         }
@@ -390,11 +402,88 @@ impl GameSpec {
 
     fn omaha8_showdown() -> ShowdownSpec {
         ShowdownSpec {
-            pot_split: PotSplit::HiLo {
-                hi: EvalKind::High,
-                lo: EvalKind::EightOrBetterLow,
+            hi: ShowdownSide {
+                kind: EvalKind::High,
+                usage: HoleUsage::ExactlyTwo,
             },
-            hole_usage: HoleUsage::ExactlyTwo,
+            lo: Some(ShowdownSide {
+                kind: EvalKind::EightOrBetterLow,
+                usage: HoleUsage::ExactlyTwo,
+            }),
+        }
+    }
+
+    /// Drawmaha: five hole cards over a hold'em-style board with one draw
+    /// between the flop and turn betting rounds (the draw street itself has
+    /// no betting). The pot splits between the omaha half (exactly two hole
+    /// cards + three board, high) and the in-hand half — the whole five-card
+    /// hand under the variant's evaluator. Both halves always exist, so the
+    /// pot always splits; odd chip to the omaha half.
+    pub fn drawmaha_fl(stakes: Stakes) -> GameSpec {
+        Self::drawmaha_base(stakes, "drawmaha-fl", "Drawmaha", EvalKind::High)
+    }
+
+    /// Drawmaha 2-7: the in-hand half is 2-7 lowball.
+    pub fn drawmaha27_fl(stakes: Stakes) -> GameSpec {
+        Self::drawmaha_base(
+            stakes,
+            "drawmaha-27-fl",
+            "Drawmaha 2-7",
+            EvalKind::DeuceToSevenLow,
+        )
+    }
+
+    /// Drawmaha Dugi: the in-hand half is badugi (best four of five).
+    pub fn drawmaha_dugi_fl(stakes: Stakes) -> GameSpec {
+        Self::drawmaha_base(
+            stakes,
+            "drawmaha-dugi-fl",
+            "Drawmaha Dugi",
+            EvalKind::Badugi,
+        )
+    }
+
+    fn drawmaha_base(
+        stakes: Stakes,
+        id: &'static str,
+        display_name: &'static str,
+        hand_half: EvalKind,
+    ) -> GameSpec {
+        use BetTier::*;
+        use FirstToAct::*;
+        let street = |label, deal, tier, first_to_act| StreetSpec {
+            label,
+            deal,
+            betting: Some(BetRoundSpec { tier, first_to_act }),
+        };
+        GameSpec {
+            id,
+            display_name,
+            seats: 2..=6,
+            stakes,
+            forced_bets: ForcedBets::Blinds { ante: 0 },
+            betting: BettingKind::FixedLimit { raise_cap: Some(4) },
+            streets: vec![
+                street("preflop", DealSpec::HolePrivate(5), Small, AfterBlinds),
+                street("flop", DealSpec::Community(3), Small, LeftOfButton),
+                StreetSpec {
+                    label: "draw",
+                    deal: DealSpec::Draw { max: 5 },
+                    betting: None,
+                },
+                street("turn", DealSpec::Community(1), Big, LeftOfButton),
+                street("river", DealSpec::Community(1), Big, LeftOfButton),
+            ],
+            showdown: ShowdownSpec {
+                hi: ShowdownSide {
+                    kind: EvalKind::High,
+                    usage: HoleUsage::ExactlyTwo,
+                },
+                lo: Some(ShowdownSide {
+                    kind: hand_half,
+                    usage: HoleUsage::AllOwn,
+                }),
+            },
         }
     }
 
@@ -414,6 +503,9 @@ impl GameSpec {
             "badeucy-fl" => Some(Self::badeucy_fl(stakes)),
             "archie-fl" => Some(Self::archie_fl(stakes)),
             "bigo-pl" => Some(Self::bigo_pl(stakes)),
+            "drawmaha-fl" => Some(Self::drawmaha_fl(stakes)),
+            "drawmaha-27-fl" => Some(Self::drawmaha27_fl(stakes)),
+            "drawmaha-dugi-fl" => Some(Self::drawmaha_dugi_fl(stakes)),
             "a5td-fl" => Some(Self::a5td_fl(stakes)),
             "badugi-fl" => Some(Self::badugi_fl(stakes)),
             "5cd-nl" => Some(Self::fcd_nl(stakes)),
@@ -440,6 +532,9 @@ impl GameSpec {
             "badeucy-fl",
             "archie-fl",
             "bigo-pl",
+            "drawmaha-fl",
+            "drawmaha-27-fl",
+            "drawmaha-dugi-fl",
         ]
     }
 
@@ -458,11 +553,14 @@ impl GameSpec {
             id: "stud8-fl",
             display_name: "Seven-Card Stud Hi-Lo (8 or Better)",
             showdown: ShowdownSpec {
-                pot_split: PotSplit::HiLo {
-                    hi: EvalKind::High,
-                    lo: EvalKind::EightOrBetterLow,
+                hi: ShowdownSide {
+                    kind: EvalKind::High,
+                    usage: HoleUsage::Any,
                 },
-                hole_usage: HoleUsage::Any,
+                lo: Some(ShowdownSide {
+                    kind: EvalKind::EightOrBetterLow,
+                    usage: HoleUsage::Any,
+                }),
             },
             ..Self::stud_base(stakes, false)
         }
@@ -474,8 +572,11 @@ impl GameSpec {
             id: "razz-fl",
             display_name: "Razz",
             showdown: ShowdownSpec {
-                pot_split: PotSplit::Hi(EvalKind::AceToFiveLow),
-                hole_usage: HoleUsage::Any,
+                hi: ShowdownSide {
+                    kind: EvalKind::AceToFiveLow,
+                    usage: HoleUsage::Any,
+                },
+                lo: None,
             },
             ..Self::stud_base(stakes, true)
         }
@@ -526,8 +627,11 @@ impl GameSpec {
                 street("seventh", DealSpec::HolePrivate(1), Big),
             ],
             showdown: ShowdownSpec {
-                pot_split: PotSplit::Hi(EvalKind::High),
-                hole_usage: HoleUsage::Any,
+                hi: ShowdownSide {
+                    kind: EvalKind::High,
+                    usage: HoleUsage::Any,
+                },
+                lo: None,
             },
         }
     }
@@ -631,8 +735,11 @@ impl GameSpec {
 
     fn draw_showdown(kind: EvalKind) -> ShowdownSpec {
         ShowdownSpec {
-            pot_split: PotSplit::Hi(kind),
-            hole_usage: HoleUsage::AllOwn,
+            hi: ShowdownSide {
+                kind,
+                usage: HoleUsage::AllOwn,
+            },
+            lo: None,
         }
     }
 
@@ -803,12 +910,8 @@ mod tests {
             ),
         ];
         for (spec, hi, lo) in expected {
-            assert_eq!(
-                spec.showdown.pot_split,
-                PotSplit::HiLo { hi, lo },
-                "{}",
-                spec.id
-            );
+            assert_eq!(spec.showdown.hi.kind, hi, "{}", spec.id);
+            assert_eq!(spec.showdown.lo.map(|l| l.kind), Some(lo), "{}", spec.id);
         }
     }
 
@@ -819,7 +922,13 @@ mod tests {
             GameSpec::badeucy_fl(BLINDS),
             GameSpec::archie_fl(BLINDS),
         ] {
-            assert_eq!(spec.showdown.hole_usage, HoleUsage::AllOwn, "{}", spec.id);
+            assert_eq!(spec.showdown.hi.usage, HoleUsage::AllOwn, "{}", spec.id);
+            assert_eq!(
+                spec.showdown.lo.map(|l| l.usage),
+                Some(HoleUsage::AllOwn),
+                "{}",
+                spec.id
+            );
             assert_eq!(spec.seats, 2..=6, "{}", spec.id);
             assert_eq!(
                 spec.streets[0].deal,
@@ -843,7 +952,7 @@ mod tests {
     fn bigo_deals_five_hole_cards_to_up_to_nine_seats() {
         let spec = GameSpec::bigo_pl(BLINDS);
         assert_eq!(spec.streets[0].deal, DealSpec::HolePrivate(5));
-        assert_eq!(spec.showdown.hole_usage, HoleUsage::ExactlyTwo);
+        assert_eq!(spec.showdown.hi.usage, HoleUsage::ExactlyTwo);
         assert_eq!(spec.betting, BettingKind::PotLimit);
         // 5 per seat plus a five-card board must fit in one deck.
         assert_eq!(*spec.seats.end() as usize * 5 + 5, 50);

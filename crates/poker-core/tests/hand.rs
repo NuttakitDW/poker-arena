@@ -10,7 +10,7 @@ use poker_core::eval::{EvalKind, HoleUsage};
 use poker_core::game::action::{Action, BetBounds, Chips, LegalActions, Seat};
 use poker_core::game::event::{Event, PostKind, PotSide};
 use poker_core::game::spec::{
-    BettingKind, DealSpec, FirstToAct, ForcedBets, GameSpec, PotSplit, ShowdownSpec, Stakes,
+    BettingKind, DealSpec, FirstToAct, ForcedBets, GameSpec, ShowdownSide, ShowdownSpec, Stakes,
 };
 use poker_core::game::state::{ActionError, HandState};
 use poker_core::rng::Rng64;
@@ -1251,11 +1251,14 @@ fn hi_lo_split_pot_awards_both_sides() {
     // HiLo settlement path end to end.
     let mut spec = nl(2);
     spec.showdown = ShowdownSpec {
-        pot_split: PotSplit::HiLo {
-            hi: EvalKind::High,
-            lo: EvalKind::EightOrBetterLow,
+        hi: ShowdownSide {
+            kind: EvalKind::High,
+            usage: HoleUsage::Any,
         },
-        hole_usage: HoleUsage::Any,
+        lo: Some(ShowdownSide {
+            kind: EvalKind::EightOrBetterLow,
+            usage: HoleUsage::Any,
+        }),
     };
     let deck = deck_for(0, &["Kh Kd", "Ac 2c"], "3d 4h 8s Ks 9c");
     let (mut hand, _) = HandState::new(&spec, &[1_000, 1_000], 0, 1, deck, test_rng()).unwrap();

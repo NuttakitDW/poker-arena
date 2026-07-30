@@ -166,7 +166,7 @@
 use super::action::{Action, BetBounds, Chips, DrawBounds, LegalActions, Seat};
 use super::event::{Event, PostKind, PotSide};
 use super::pot::{PotAward, ShowdownEntry, award_pots, build_pots};
-use super::spec::{BettingKind, DealSpec, FirstToAct, ForcedBets, GameSpec, PotSplit};
+use super::spec::{BettingKind, DealSpec, FirstToAct, ForcedBets, GameSpec};
 use crate::card::{Card, Deck};
 use crate::eval::best_with_usage;
 use crate::rng::Rng64;
@@ -1080,11 +1080,8 @@ impl HandState {
     }
 
     fn finish_showdown(&mut self, ev: &mut Vec<Event>) {
-        let (hi_kind, lo_kind) = match self.spec.showdown.pot_split {
-            PotSplit::Hi(hi) => (hi, None),
-            PotSplit::HiLo { hi, lo } => (hi, Some(lo)),
-        };
-        let usage = self.spec.showdown.hole_usage;
+        let hi_side = self.spec.showdown.hi;
+        let lo_side = self.spec.showdown.lo;
         let order = self.odd_chip_order();
         let mut entries: Vec<ShowdownEntry> = Vec::new();
         let mut showdown_seats: Vec<Seat> = Vec::new();
@@ -1096,8 +1093,9 @@ impl HandState {
             // not of a board. Every other family has an empty `up`.
             let mut hole = self.hole[seat].clone();
             hole.extend_from_slice(&self.up[seat]);
-            let hi = best_with_usage(hi_kind, usage, &hole, &self.board);
-            let lo = lo_kind.and_then(|k| best_with_usage(k, usage, &hole, &self.board));
+            let hi = best_with_usage(hi_side.kind, hi_side.usage, &hole, &self.board);
+            let lo =
+                lo_side.and_then(|side| best_with_usage(side.kind, side.usage, &hole, &self.board));
             ev.push(Event::ShowdownShow {
                 seat,
                 cards: hole,
@@ -1108,7 +1106,7 @@ impl HandState {
             showdown_seats.push(seat);
         }
         let pots = build_pots(&self.contrib, &self.folded);
-        let has_low = lo_kind.is_some();
+        let has_low = lo_side.is_some();
         let awards = award_pots(&pots, &entries, has_low, &order);
         self.finish(ev, awards, showdown_seats);
     }

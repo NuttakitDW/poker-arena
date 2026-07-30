@@ -11,7 +11,7 @@ pub use action::{Action, BetBounds, Chips, DrawBounds, LegalActions, Seat};
 pub use event::{Event, PostKind, PotSide};
 pub use pot::{Pot, PotAward, ShowdownEntry};
 pub use spec::{
-    BetRoundSpec, BetTier, BettingKind, DealSpec, FirstToAct, ForcedBets, GameSpec, PotSplit,
+    BetRoundSpec, BetTier, BettingKind, DealSpec, FirstToAct, ForcedBets, GameSpec, ShowdownSide,
     ShowdownSpec, Stakes, StreetSpec,
 };
 pub use state::{ActionError, HandError, HandState, Settlement};
