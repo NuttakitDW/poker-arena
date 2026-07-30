@@ -27,13 +27,13 @@ def decide(act):
     legal = act["legal"]
     hole = act.get("hole", [])
 
-    # Draw streets (M3): discard high cards, up to the offered max.
+    # Draw streets: discard high cards, up to the offered max.
     draw = legal.get("draw")
     if draw is not None:
         high = [c for c in hole if c[0] in "9TJQKA"]
         return {"kind": "discard", "cards": high[: draw["max_discards"]]}
 
-    # Stud (M3): always post the forced bring-in rather than completing.
+    # Stud: always post the forced bring-in rather than completing.
     if legal.get("bring_in") is not None:
         return {"kind": "bring-in"}
 
