@@ -23,7 +23,7 @@ pub mod framing;
 pub mod message;
 
 pub use framing::{WireError, read_msg, write_msg};
-pub use message::{ArenaMsg, BotMsg, GameInfo, PostKind, PotSide, WireEvent};
+pub use message::{ArenaMsg, BotMsg, GameInfo, PostKind, PotSide, WireBetting, WireEvent};
 
 /// Wire protocol version, exchanged in `ArenaMsg::Hello`.
 pub const PROTO_VERSION: u32 = 1;

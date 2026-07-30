@@ -32,6 +32,7 @@ fn hello(timeout_ms: Option<u64>) -> ArenaMsg {
             id: "holdem-nl".to_string(),
             display_name: "No-Limit Texas Hold'em".to_string(),
             stakes: STAKES,
+            betting: poker_wire::message::WireBetting::NoLimit,
         },
         seat_count: 2,
         starting_stack: 10_000,

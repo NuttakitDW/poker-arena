@@ -23,6 +23,34 @@ pub struct GameInfo {
     pub id: String,
     pub display_name: String,
     pub stakes: Stakes,
+    /// Betting structure, tagged like `{"kind":"no-limit"}` |
+    /// `{"kind":"pot-limit"}` | `{"kind":"fixed-limit","raise_cap":4}`
+    /// (`raise_cap` null = uncapped).
+    pub betting: WireBetting,
+}
+
+/// Deserializable mirror of `poker_core::game::BettingKind` (core's is
+/// `Serialize`-only). Serializes identically: same tag, kebab-case variant
+/// names, and field shapes. Bots need this to plan a street: without the
+/// raise cap, a fixed-limit bot cannot tell how many more raises are legal.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum WireBetting {
+    NoLimit,
+    PotLimit,
+    FixedLimit { raise_cap: Option<u8> },
+}
+
+impl From<poker_core::game::BettingKind> for WireBetting {
+    fn from(kind: poker_core::game::BettingKind) -> WireBetting {
+        match kind {
+            poker_core::game::BettingKind::NoLimit => WireBetting::NoLimit,
+            poker_core::game::BettingKind::PotLimit => WireBetting::PotLimit,
+            poker_core::game::BettingKind::FixedLimit { raise_cap } => {
+                WireBetting::FixedLimit { raise_cap }
+            }
+        }
+    }
 }
 
 /// Messages sent from the arena to a bot.
@@ -429,6 +457,7 @@ mod tests {
                         small_blind: 50,
                         big_blind: 100,
                     },
+                    betting: WireBetting::NoLimit,
                 },
                 seat_count: 2,
                 starting_stack: 10_000,
@@ -503,6 +532,7 @@ mod tests {
                     small_blind: 50,
                     big_blind: 100,
                 },
+                betting: WireBetting::NoLimit,
             },
             seat_count: 2,
             starting_stack: 10_000,
@@ -511,7 +541,7 @@ mod tests {
         let text = serde_json::to_string(&msg).unwrap();
         assert_eq!(
             text,
-            r#"{"t":"hello","proto":1,"game":{"id":"holdem-nl","display_name":"No-Limit Texas Hold'em","stakes":{"kind":"blinds","small_blind":50,"big_blind":100}},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}"#
+            r#"{"t":"hello","proto":1,"game":{"id":"holdem-nl","display_name":"No-Limit Texas Hold'em","stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"no-limit"}},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}"#
         );
     }
 

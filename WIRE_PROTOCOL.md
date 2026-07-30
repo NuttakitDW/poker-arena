@@ -66,7 +66,7 @@ Sent once, immediately after connection.
 | field           | type              | meaning                                   |
 |-----------------|-------------------|--------------------------------------------|
 | `proto`         | u32               | Protocol version (currently `1`).          |
-| `game`          | `GameInfo`        | `{ id, display_name, stakes }`.            |
+| `game`          | `GameInfo`        | `{ id, display_name, stakes, betting }`.   |
 | `seat_count`    | usize             | Number of seats at the table.              |
 | `starting_stack`| u64               | Chips every seat starts each hand with.    |
 | `timeout_ms`    | u64 or `null`     | Per-action deadline the arena enforces, or `null` for none. |
@@ -79,12 +79,23 @@ game family:
 - Stud games: `{ kind: "stud", ante: u64, bring_in: u64, small_bet: u64,
   big_bet: u64 }`.
 
+`GameInfo.betting` is tagged on `kind` and has three shapes:
+
+- `{ kind: "no-limit" }`.
+- `{ kind: "pot-limit" }`.
+- `{ kind: "fixed-limit", raise_cap: u8 or null }` — `raise_cap` is the
+  maximum number of wagers (the opening bet/blind counts as the first) a
+  fixed-limit betting round allows; `null` means uncapped. Fixed-limit bots
+  need this up front to plan a street: without the cap, a bot can't tell
+  how many more raises are legal before `legal.raise` in `act` stops being
+  offered.
+
 ```json
-{"t":"hello","proto":1,"game":{"id":"holdem-nl","display_name":"No-Limit Texas Hold'em","stakes":{"kind":"blinds","small_blind":50,"big_blind":100}},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
+{"t":"hello","proto":1,"game":{"id":"holdem-nl","display_name":"No-Limit Texas Hold'em","stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"no-limit"}},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
 ```
 
 ```json
-{"t":"hello","proto":1,"game":{"id":"stud-fl","display_name":"Seven-Card Stud","stakes":{"kind":"stud","ante":20,"bring_in":50,"small_bet":100,"big_bet":200}},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
+{"t":"hello","proto":1,"game":{"id":"stud-fl","display_name":"Seven-Card Stud","stakes":{"kind":"stud","ante":20,"bring_in":50,"small_bet":100,"big_bet":200},"betting":{"kind":"fixed-limit","raise_cap":4}},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
 ```
 
 ### `hand-start`
@@ -346,7 +357,7 @@ A complete heads-up no-limit hold'em hand from one bot's point of view
 the whole hand-end-to-hand-end cycle fits in ~20 lines:
 
 ```json
-{"t":"hello","proto":1,"game":{"id":"holdem-nl","display_name":"No-Limit Texas Hold'em","stakes":{"kind":"blinds","small_blind":50,"big_blind":100}},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
+{"t":"hello","proto":1,"game":{"id":"holdem-nl","display_name":"No-Limit Texas Hold'em","stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"no-limit"}},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
 {"t":"join","name":"check-call-bot"}
 {"t":"hand-start","hand_no":1,"seat":0}
 {"t":"event","hand_no":1,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}

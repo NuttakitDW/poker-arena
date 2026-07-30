@@ -15,7 +15,7 @@ use poker_arena::config::{DealingMode, FaultPolicy, MatchConfig};
 use poker_arena::log::{EventSink, JsonLog};
 use poker_arena::remote::WireBot;
 use poker_arena::runner::{Progress, run_match};
-use poker_core::game::{GameSpec, Stakes};
+use poker_core::game::{BettingKind, GameSpec, Stakes};
 use poker_wire::message::{ArenaMsg, GameInfo};
 
 fn main() -> ExitCode {
@@ -83,6 +83,12 @@ struct RunArgs {
     /// Passing this for a non-stud game is an error.
     #[arg(long)]
     big_bet: Option<u64>,
+
+    /// Raise cap for fixed-limit games (max total wagers per betting round,
+    /// including the opening bet). 0 = uncapped. Passing this for a
+    /// non-fixed-limit game is an error.
+    #[arg(long)]
+    raise_cap: Option<u8>,
 
     /// Number of decks to play: one hand per deck in seeded mode, or
     /// decks of duplicate rotations (one hand per seat rotation, all bots
@@ -379,6 +385,15 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
         }
         Stakes::Blinds { .. } => {}
     }
+
+    if let Some(n) = args.raise_cap {
+        if !matches!(spec.betting, BettingKind::FixedLimit { .. }) {
+            return Err("--raise-cap applies only to fixed-limit games".to_string());
+        }
+        spec.betting = BettingKind::FixedLimit {
+            raise_cap: (n != 0).then_some(n),
+        };
+    }
     let stakes = spec.stakes;
 
     let (seat_min, seat_max) = (*spec.seats.start() as usize, *spec.seats.end() as usize);
@@ -406,6 +421,7 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
             id: spec.id.to_string(),
             display_name: spec.display_name.to_string(),
             stakes,
+            betting: spec.betting.into(),
         },
         seat_count: args.bots.len(),
         starting_stack,

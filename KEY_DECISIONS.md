@@ -93,7 +93,14 @@ first behavioral divergence — full strength for community-card games
 
 **Stacks reset every hand.** Bot comparison measures per-hand EV, not
 bankroll trajectories; resets keep observations i.i.d. and make duplicate
-replays meaningful. Depth is configurable (default 100 BB).
+replays meaningful. Depth is configurable (default 100 BB). Corollary:
+because every active seat then always has identical remaining capacity, a
+short all-in can only set the price at everyone's ceiling — so the
+reopening rules and side pots are *unreachable in arena matches as
+configured*. They are implemented and tested anyway: `poker-core`'s
+contract is correctness for arbitrary stacks (solvers and uneven-stack
+formats hit these paths), and the equal-stack invariant is the runner's
+policy, not the engine's promise.
 
 **Seeds are random by default and always printed.** A fixed default seed
 silently replays identical hands when users run "more" matches. Unpinned
@@ -131,13 +138,29 @@ internally so greater-always-wins holds everywhere).
 call. Folding a free check is never correct and almost always a bot bug —
 surfacing it as a fault beats letting it pass.
 
-**Short all-ins never lower the price, and don't reopen action.** A short
-all-in blind or bring-in leaves the nominal price intact for everyone else;
-a short all-in wager below a full raise doesn't reopen betting for players
-who already acted (and doesn't move the min-raise base). Fixed limit uses
-the half-bet rule; the bring-in doesn't count toward the cap and a
-completion counts as the first wager (keyed on "no full wager yet", which
-also gives sub-half-bet all-in openings the standard completion behavior).
+**Short all-ins never lower the price; reopening is cumulative.** A short
+all-in blind or bring-in leaves the nominal price intact for everyone
+else. A single short all-in below a full raise doesn't reopen betting for
+players who already acted and never moves the min-raise base — but
+reopening is judged *cumulatively* (TDA-style): a seat that already acted
+may re-raise once the price has risen by at least one full raise
+(no-limit/pot-limit) or half a bet (fixed limit) since its last action.
+Example: bet 500, raise to 1200, all-ins to 1700 and 2000 — the original
+raiser faces +800 ≥ 700 and may re-raise (minimum 2700).
+
+**Fixed-limit raises are additive, not ladder-quantized.** A raise is
+always to `current price + one bet`: after a 100 bet and a 170 all-in, the
+re-raise is to 270 (the TDA ladder/completion model — snapping raises to
+tier multiples — was considered and rejected by the project owner). The
+half-bet rule classifies a short all-in: at least half a bet above the
+price is a raise (consumes a cap slot, reopens action); below half is a
+call-plus-extra (no slot, no reopening by itself, cumulative rule above
+still applies). The cap counts full wagers — the big blind preflop and
+the stud completion are the first — and at the cap it is call or fold, no
+exceptions. The bring-in consumes no slot; a raise made while no full
+wager exists yet this street is to one bet flat (the completion). The cap
+defaults to 4, is configurable per match (`--raise-cap`, 0 = uncapped),
+and is announced to bots in the wire `hello`'s betting structure.
 
 **The bring-in gets no option.** If everyone just calls the bring-in, the
 round ends — unlike the big blind, the bring-in was that player's own

@@ -34,24 +34,41 @@
 //! - **No-limit**: opening bet minimum = big blind; minimum raise increment
 //!   = size of the last full bet/raise this street (initially the big
 //!   blind); maximum = actor's all-in total. A short all-in below the full
-//!   minimum is legal (bounds collapse to the all-in) but does **not**
-//!   reopen the action: seats that already acted at the prior price may only
-//!   call or fold when action returns to them, and the min-raise base for
-//!   later full raises is unchanged by the short wager.
+//!   minimum is legal (bounds collapse to the all-in) and never changes the
+//!   min-raise base. **Reopening (TDA cumulative rule)**: track the table
+//!   price at each seat's last action (`acted_to`); when action returns to
+//!   a seat that already acted, raising is offered iff
+//!   `current_to − acted_to[seat] ≥ last full raise size` — one short
+//!   all-in does not reopen, but several that *cumulatively* amount to a
+//!   full raise do. (Example: bet 500, raise to 1200, all-in 1700, all-in
+//!   2000 → the original raiser faces 2000−1200 = 800 ≥ 700 and may
+//!   re-raise, minimum to 2700.)
 //! - **Pot-limit**: same as no-limit except the maximum. Implement exactly
 //!   as `max_to = to_call_total + pot_after_call`, where `to_call_total` is
 //!   the actor's street commitment after a hypothetical call and
 //!   `pot_after_call = pot_total_before_action + to_call_amount` (the
 //!   classic "call, then raise the size of the pot"). Clamp to all-in.
-//! - **Fixed-limit**: wager sizes fixed at `spec.tier_size(street.tier)`;
-//!   `min_to == max_to == current_to + tier` (or `tier` for the opening
-//!   bet). The round's wager count is capped per
-//!   `BettingKind::FixedLimit { raise_cap }`: the opening bet counts as
-//!   wager 1, and preflop the big blind itself counts as wager 1. At the
-//!   cap, only call/fold are offered. A short all-in "raise" is allowed
-//!   below tier size when it is the actor's whole stack; it counts toward
-//!   the cap only if ≥ half the tier (half-bet rule) — otherwise treated as
-//!   a call-and-more that does not reopen action.
+//! - **Fixed-limit** is *additive*: with street tier `T`, a raise is always
+//!   **to `current_to + T`** — one full bet on top of the price actually
+//!   showing, all-in amounts included — except while no full wager has been
+//!   made this street (`wagers == 0`: a stud bring-in is pending, or the
+//!   street's only wager so far was a sub-half short all-in), where the
+//!   wager *completes* to `T` flat. Clamped to the actor's all-in, so
+//!   `min_to == max_to` always.
+//!   **Half-bet rule**: a short all-in whose increment is at least half of
+//!   `T` (integer form `2·inc ≥ T`) is a raise — it consumes a cap slot and
+//!   reopens the action; below half it is a call-plus-extra that consumes
+//!   no slot and reopens nothing. **Reopening** for a seat that already
+//!   acted follows the same cumulative rule as no-limit, with threshold
+//!   `T/2`: raising is offered iff `2·(current_to − acted_to[seat]) ≥ T`,
+//!   so two short all-ins that together add half a bet reopen a seat that
+//!   neither would alone. Such a raise is an ordinary wager to
+//!   `current_to + T` and consumes its own cap slot.
+//!   The cap (`BettingKind::FixedLimit { raise_cap }`) counts wagers:
+//!   preflop the big blind is the first, postflop the opening bet is; the
+//!   stud bring-in is never one, and a short all-in counts only when the
+//!   half-bet rule makes it a raise. At `wagers >= cap` only call/fold are
+//!   offered — no exceptions, reopened or not.
 //!
 //! ## Street advancement & hand end
 //! - `apply` auto-advances: when a betting round completes, deal the next
@@ -233,6 +250,12 @@ pub struct HandState {
     /// Cleared for everyone else by a *full* bet/raise; a short all-in
     /// leaves it set, which is exactly the no-reopen rule.
     acted: Vec<bool>,
+    /// The price (`current_to`) as of each seat's last action this street.
+    /// Drives the cumulative reopening rule: the action reopens for a seat
+    /// once the price has risen by a full wager's worth since it acted, so
+    /// several short all-ins that add up to a full raise reopen it even
+    /// though none of them cleared `acted`.
+    acted_to: Vec<Chips>,
     street: usize,
     current_to: Chips,
     /// Size of the last full bet/raise this street; also the minimum
@@ -298,6 +321,7 @@ impl HandState {
             folded: vec![false; seats],
             all_in: vec![false; seats],
             acted: vec![false; seats],
+            acted_to: vec![0; seats],
             street: 0,
             current_to: 0,
             last_raise: spec.stakes.blinds().1.max(1),
@@ -385,9 +409,10 @@ impl HandState {
         }
 
         let opening = self.current_to == 0;
-        // A short all-in that did not reopen the action leaves `acted` set,
-        // which is precisely who may no longer raise.
-        if !opening && self.acted[seat] {
+        // A short all-in that did not reopen the action leaves `acted` set;
+        // such a seat may raise again only once the price has climbed a full
+        // wager's worth since it last acted (the cumulative rule).
+        if !opening && self.acted[seat] && !self.reopened_for(seat) {
             return la;
         }
 
@@ -498,6 +523,7 @@ impl HandState {
         }
         self.bring_in_pending = false;
         self.acted[seat] = true;
+        self.acted_to[seat] = self.current_to;
         ev.push(Event::Acted {
             seat,
             action,
@@ -843,6 +869,14 @@ impl HandState {
         }
     }
 
+    /// Cumulative reopening: a seat that already acted regains the right to
+    /// raise once the price has risen by a full wager's worth since it last
+    /// acted. One short all-in never clears that bar (it is short precisely
+    /// because it falls under it), but several together can.
+    fn reopened_for(&self, seat: Seat) -> bool {
+        self.is_full_wager(self.current_to - self.acted_to[seat])
+    }
+
     /// Pot-limit ceiling: call first, then raise the size of the resulting
     /// pot.
     fn pot_limit_max(&self, seat: Seat) -> Chips {
@@ -883,6 +917,7 @@ impl HandState {
         for s in 0..self.seats {
             self.commit[s] = 0;
             self.acted[s] = false;
+            self.acted_to[s] = 0;
         }
         self.current_to = 0;
         self.last_raise = self.spec.stakes.blinds().1.max(1);
@@ -1300,6 +1335,29 @@ mod tests {
             hand.legal_actions().unwrap().raise,
             Some(BetBounds {
                 min_to: 18,
+                max_to: 200
+            })
+        );
+    }
+
+    #[test]
+    fn acted_to_records_the_price_at_each_seats_last_action() {
+        let mut hand = start(&nl(9), &[200, 9, 12, 200]);
+        // Seat 3 opens to 6 (a full raise of 4 over the blind), seat 0 calls.
+        hand.apply(Action::Raise { to: 6 }).unwrap();
+        hand.apply(Action::Call).unwrap();
+        assert_eq!(hand.acted_to, vec![6, 0, 0, 6]);
+
+        // Two all-ins of 3 each: neither is a full raise on its own, so
+        // neither clears `acted`, but together they add up to one.
+        hand.apply(Action::Raise { to: 9 }).unwrap();
+        hand.apply(Action::Raise { to: 12 }).unwrap();
+        assert_eq!(hand.acted_to, vec![6, 9, 12, 6]);
+        assert!(hand.acted[3] && hand.reopened_for(3));
+        assert_eq!(
+            hand.legal_actions().unwrap().raise,
+            Some(BetBounds {
+                min_to: 16,
                 max_to: 200
             })
         );

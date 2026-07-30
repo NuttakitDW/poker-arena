@@ -375,6 +375,184 @@ fn short_all_in_leaves_the_min_raise_base_alone() {
     );
 }
 
+// --- 3b. Cumulative reopening (TDA rule) --------------------------------
+
+/// Four-handed table for the reopening scenarios. Postflop order is seat 1,
+/// 2, 3, 0: the short stacks sit in the middle, so the seats that already
+/// acted meet their all-ins on the way back around. Hand strength descends
+/// seat 2 (aces) > seat 3 (kings) > seat 1 (queens) > seat 0 (jacks) on a
+/// board that never plays.
+fn four_handed(spec: &GameSpec, stacks: &[Chips; 4]) -> HandState {
+    let holes = ["Jh Jd", "Qh Qd", "Ah As", "Kh Kd"];
+    let deck = deck_for(0, &holes, "2c 7d 9s Ts 3h");
+    HandState::new(spec, stacks, 0, 1, deck, test_rng())
+        .unwrap()
+        .0
+}
+
+/// Everyone in for the big blind, leaving the flop four-handed (seat 3 acts
+/// first preflop, the big blind closes with its option).
+fn limp_to_the_flop(hand: &mut HandState) {
+    play(
+        hand,
+        &[Action::Call, Action::Call, Action::Call, Action::Check],
+    );
+}
+
+#[test]
+fn cumulative_short_all_ins_reopen_the_action() {
+    // Seats 2 and 3 reach the flop with exactly 1_700 and 2_000 behind.
+    let mut hand = four_handed(&nl(4), &[10_100, 10_100, 1_800, 2_100]);
+    limp_to_the_flop(&mut hand);
+    assert_eq!(hand.street(), (1, "flop"));
+    assert_eq!(hand.stacks(), &[10_000, 10_000, 1_700, 2_000]);
+
+    // Bet 500, two calls, raise to 1_200: the last full raise is 700.
+    play(
+        &mut hand,
+        &[
+            Action::Bet { to: 500 },
+            Action::Call,
+            Action::Call,
+            Action::Raise { to: 1_200 },
+        ],
+    );
+    // Seat 1 calls the raise, so from here on it has acted at a price of
+    // 1_200 — a single short all-in must not give it the action back.
+    assert_eq!(hand.to_act(), Some(1));
+    play(&mut hand, &[Action::Call]);
+
+    // Seat 2 shoves 1_700: 500 short of the 700 needed for a full raise.
+    assert_eq!(
+        hand.legal_actions().unwrap().raise,
+        Some(BetBounds {
+            min_to: 1_700,
+            max_to: 1_700
+        })
+    );
+    play(&mut hand, &[Action::Raise { to: 1_700 }]);
+    // Seat 3 shoves 2_000: 300 more, also short on its own.
+    assert_eq!(hand.to_act(), Some(3));
+    assert_eq!(
+        hand.legal_actions().unwrap().raise,
+        Some(BetBounds {
+            min_to: 2_000,
+            max_to: 2_000
+        })
+    );
+    play(&mut hand, &[Action::Raise { to: 2_000 }]);
+
+    // Seat 0 raised to 1_200 and now faces 2_000: 800 >= 700, so the two
+    // short all-ins together reopen the action, minimum 2_000 + 700.
+    let reopened = Some(BetBounds {
+        min_to: 2_700,
+        max_to: 10_000,
+    });
+    assert_eq!(hand.to_act(), Some(0));
+    assert_eq!(hand.legal_actions().unwrap().raise, reopened);
+    play(&mut hand, &[Action::Call]);
+
+    // Seat 1 called at 1_200 and is reopened by the same 800.
+    assert_eq!(hand.to_act(), Some(1));
+    assert_eq!(hand.legal_actions().unwrap().raise, reopened);
+    play(&mut hand, &[Action::Raise { to: 2_700 }, Action::Call]);
+
+    assert_eq!(hand.street(), (2, "turn"));
+    play(&mut hand, &[Action::Check, Action::Check]);
+    let end = play(&mut hand, &[Action::Check, Action::Check]);
+
+    // Contributions 2_800 / 2_800 / 1_800 / 2_100 layer into three pots:
+    // everyone up to 1_800, seats 0/1/3 up to 2_100, seats 0/1 above it.
+    let awards: Vec<&Event> = end
+        .iter()
+        .filter(|e| matches!(e, Event::PotAwarded { .. }))
+        .collect();
+    assert_eq!(
+        awards,
+        vec![
+            &awarded(0, &[(2, 7_200)]),
+            &awarded(1, &[(3, 900)]),
+            &awarded(2, &[(1, 1_400)]),
+        ]
+    );
+    assert_eq!(
+        hand.settlement().unwrap().nets,
+        vec![-2_800, -1_400, 5_400, -1_200]
+    );
+    assert_conserved(&hand);
+}
+
+#[test]
+fn single_short_all_in_still_does_not_reopen() {
+    // Same line, but only one seat shoves short: 1_700 − 1_200 = 500 < 700,
+    // so nobody who already acted gets the action back.
+    let mut hand = four_handed(&nl(4), &[10_100, 10_100, 1_800, 2_100]);
+    limp_to_the_flop(&mut hand);
+    play(
+        &mut hand,
+        &[
+            Action::Bet { to: 500 },
+            Action::Call,
+            Action::Call,
+            Action::Raise { to: 1_200 },
+            Action::Call,                // seat 1, now acted at 1_200
+            Action::Raise { to: 1_700 }, // seat 2, all-in and short
+            Action::Call,                // seat 3
+        ],
+    );
+
+    for seat in [0, 1] {
+        assert_eq!(hand.to_act(), Some(seat));
+        assert_eq!(
+            hand.legal_actions().unwrap(),
+            LegalActions {
+                fold: true,
+                check: false,
+                call: Some(500),
+                bet: None,
+                raise: None,
+                bring_in: None,
+                draw: None,
+            }
+        );
+        assert!(matches!(
+            hand.apply(Action::Raise { to: 2_400 }),
+            Err(ActionError::Illegal { .. })
+        ));
+        play(&mut hand, &[Action::Call]);
+    }
+    assert_eq!(hand.street(), (2, "turn"));
+}
+
+#[test]
+fn two_shorts_below_threshold_do_not_reopen() {
+    // Shoves of 1_400 and 1_600 add up to 400 over the 1_200 price — still
+    // short of the 700 full raise, so the cumulative rule stays silent.
+    let mut hand = four_handed(&nl(4), &[10_100, 10_100, 1_500, 1_700]);
+    limp_to_the_flop(&mut hand);
+    play(
+        &mut hand,
+        &[
+            Action::Bet { to: 500 },
+            Action::Call,
+            Action::Call,
+            Action::Raise { to: 1_200 },
+            Action::Call,                // seat 1, acted at 1_200
+            Action::Raise { to: 1_400 }, // seat 2, all-in
+            Action::Raise { to: 1_600 }, // seat 3, all-in
+        ],
+    );
+
+    for seat in [0, 1] {
+        assert_eq!(hand.to_act(), Some(seat));
+        let la = hand.legal_actions().unwrap();
+        assert_eq!(la.raise, None, "400 < 700 is not a reopening");
+        assert_eq!(la.call, Some(400));
+        play(&mut hand, &[Action::Call]);
+    }
+    assert_eq!(hand.street(), (2, "turn"));
+}
+
 // --- 4. Min-raise laddering ---------------------------------------------
 
 #[test]
@@ -535,12 +713,6 @@ fn fixed_limit_tier_sizes_and_raise_cap() {
         HandState::new(&fl(3), &[10_000, 10_000, 10_000], 0, 1, deck, test_rng()).unwrap();
 
     // Preflop tier = big blind; the blind itself is wager 1.
-    let fixed = |to| {
-        Some(BetBounds {
-            min_to: to,
-            max_to: to,
-        })
-    };
     assert_eq!(hand.legal_actions().unwrap().raise, fixed(200));
     assert!(matches!(
         hand.apply(Action::Raise { to: 250 }),
@@ -651,6 +823,148 @@ fn fixed_limit_short_all_in_of_half_a_bet_counts_toward_the_cap() {
     let la = hand.legal_actions().unwrap();
     assert_eq!(la.raise, None);
     assert_eq!(la.call, Some(100));
+}
+
+/// Fixed-limit `to`-bounds always collapse to a single amount.
+fn fixed(to: Chips) -> Option<BetBounds> {
+    Some(BetBounds {
+        min_to: to,
+        max_to: to,
+    })
+}
+
+#[test]
+fn fl_sub_half_short_does_not_reopen() {
+    // Flop tier 100. Seat 3 arrives with 130 behind and shoves it: 30 is
+    // under half a bet, so it consumes no cap slot and reopens nobody.
+    let mut hand = four_handed(&fl(4), &[10_100, 10_100, 10_100, 230]);
+    limp_to_the_flop(&mut hand);
+    play(&mut hand, &[Action::Bet { to: 100 }, Action::Call]);
+    assert_eq!(hand.legal_actions().unwrap().raise, fixed(130));
+    play(&mut hand, &[Action::Raise { to: 130 }]);
+
+    // Seat 0 has not acted this street: it raises a full bet over the price
+    // actually showing.
+    assert_eq!(hand.to_act(), Some(0));
+    assert_eq!(hand.legal_actions().unwrap().raise, fixed(230));
+    play(&mut hand, &[Action::Call]);
+
+    // Seat 1 bet 100 and faces 130: call the extra 30 or fold, nothing else.
+    assert_eq!(hand.to_act(), Some(1));
+    assert_eq!(
+        hand.legal_actions().unwrap(),
+        LegalActions {
+            fold: true,
+            check: false,
+            call: Some(30),
+            bet: None,
+            raise: None,
+            bring_in: None,
+            draw: None,
+        }
+    );
+    assert!(matches!(
+        hand.apply(Action::Raise { to: 230 }),
+        Err(ActionError::Illegal { .. })
+    ));
+}
+
+#[test]
+fn fl_half_or_more_short_reopens_with_additive_raise() {
+    // Seat 3 shoves 170 over the 100 bet: 70 is at least half the 100 tier,
+    // so it is a raise — cap slot 2, and the action reopens at 170 + 100.
+    let mut hand = four_handed(&fl(4), &[10_100, 10_100, 10_100, 270]);
+    limp_to_the_flop(&mut hand);
+    play(
+        &mut hand,
+        &[
+            Action::Bet { to: 100 }, // wager 1
+            Action::Call,
+            Action::Raise { to: 170 }, // wager 2, all-in and short
+        ],
+    );
+    assert_eq!(hand.legal_actions().unwrap().raise, fixed(270));
+    play(&mut hand, &[Action::Call]);
+
+    // Seat 1 bet 100 and is reopened by the half-bet all-in.
+    assert_eq!(hand.to_act(), Some(1));
+    assert_eq!(hand.legal_actions().unwrap().raise, fixed(270));
+    play(&mut hand, &[Action::Raise { to: 270 }]); // wager 3
+    assert_eq!(hand.legal_actions().unwrap().raise, fixed(370));
+    play(&mut hand, &[Action::Raise { to: 370 }]); // wager 4 = cap
+
+    let la = hand.legal_actions().unwrap();
+    assert_eq!(la.raise, None, "four wagers is the cap");
+    assert_eq!(la.call, Some(200));
+}
+
+#[test]
+fn fl_cumulative_half_reopen() {
+    // Two all-ins of 30 and 25 over the 100 bet: neither is half a bet, so
+    // neither consumes a slot or reopens on its own — but together the price
+    // has risen 55 since seat 1 acted, which is half a bet or more.
+    let mut hand = four_handed(&fl(4), &[255, 10_100, 10_100, 230]);
+    limp_to_the_flop(&mut hand);
+    play(
+        &mut hand,
+        &[
+            Action::Bet { to: 100 }, // wager 1
+            Action::Call,
+            Action::Raise { to: 130 }, // seat 3, all-in, no slot
+        ],
+    );
+    assert_eq!(hand.to_act(), Some(0));
+    assert_eq!(hand.legal_actions().unwrap().raise, fixed(155));
+    play(&mut hand, &[Action::Raise { to: 155 }]); // seat 0, all-in, no slot
+
+    assert_eq!(hand.to_act(), Some(1));
+    assert_eq!(hand.legal_actions().unwrap().raise, fixed(255));
+    play(&mut hand, &[Action::Raise { to: 255 }]); // wager 2
+    assert_eq!(hand.legal_actions().unwrap().raise, fixed(355));
+    play(&mut hand, &[Action::Raise { to: 355 }]); // wager 3
+    assert_eq!(hand.legal_actions().unwrap().raise, fixed(455));
+    play(&mut hand, &[Action::Raise { to: 455 }]); // wager 4 = cap
+
+    // Exactly four wagers were counted: the two short all-ins consumed none.
+    let la = hand.legal_actions().unwrap();
+    assert_eq!(la.raise, None);
+    assert_eq!(la.call, Some(100));
+}
+
+#[test]
+fn fl_capped_means_call_or_fold_even_when_reopened() {
+    // Three-handed: bet, raise, raise, raise fills the cap. Every seat still
+    // to act has seen the price climb a full bet or more since it last
+    // acted — the reopening rules never outrank the cap. (A seat whose
+    // `acted` flag is still set cannot even exist here: the wager that fills
+    // the last slot clears every flag, and at the cap nothing may move the
+    // price again.)
+    let deck = deck_for(0, &["Ah Ad", "Kh Kd", "Qh Qd"], "2c 7d 9s Ts 3h");
+    let (mut hand, _) = HandState::new(&fl(3), &[10_000; 3], 0, 1, deck, test_rng()).unwrap();
+    play(&mut hand, &[Action::Call, Action::Call, Action::Check]);
+    assert_eq!(hand.street(), (1, "flop"));
+    play(
+        &mut hand,
+        &[
+            Action::Bet { to: 100 },   // wager 1
+            Action::Raise { to: 200 }, // wager 2
+            Action::Raise { to: 300 }, // wager 3
+            Action::Raise { to: 400 }, // wager 4 = cap
+        ],
+    );
+
+    for seat in [2, 0] {
+        assert_eq!(hand.to_act(), Some(seat));
+        let la = hand.legal_actions().unwrap();
+        assert_eq!(la.raise, None);
+        assert!(la.fold);
+        assert!(matches!(
+            hand.apply(Action::Raise { to: 500 }),
+            Err(ActionError::Illegal { .. })
+        ));
+        play(&mut hand, &[Action::Call]);
+    }
+    assert_eq!(hand.street(), (2, "turn"));
 }
 
 #[test]
