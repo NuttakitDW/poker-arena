@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use poker_core::game::Action;
 use poker_wire::framing::{WireError, read_msg, write_msg};
-use poker_wire::message::{ArenaMsg, BotMsg, WireEvent};
+use poker_wire::message::{ArenaMsg, BotMsg, WireDecision, WireEvent};
 
 use crate::bot::{ActionRequest, Bot, BotFault, HandEnd, HandStart};
 
@@ -334,7 +334,7 @@ impl Bot for WireBot {
         let msg = ArenaMsg::Act {
             hand_no: req.hand_no,
             seat: req.seat,
-            legal: req.legal.clone(),
+            decision: WireDecision::from(req.legal),
             deadline_ms: self.timeout.map(|d| d.as_millis() as u64),
         };
         self.send(&msg);

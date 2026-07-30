@@ -23,10 +23,10 @@ pub mod framing;
 pub mod message;
 
 pub use framing::{WireError, read_msg, write_msg};
-pub use message::{ArenaMsg, BotMsg, GameInfo, PostKind, PotSide, WireBetting, WireEvent};
+pub use message::{ArenaMsg, BotMsg, PostKind, PotSide, WireBetting, WireDecision, WireEvent};
 
 /// Wire protocol version, exchanged in `ArenaMsg::Hello`.
-pub const PROTO_VERSION: u32 = 1;
+pub const PROTO_VERSION: u32 = 2;
 
 /// Maximum length, in bytes, of a single framed line (including the JSON
 /// payload but not the trailing newline). Lines longer than this are

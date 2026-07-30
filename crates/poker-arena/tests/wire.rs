@@ -18,7 +18,7 @@ use poker_arena::runner::{MatchResult, run_match};
 use poker_core::card::Card;
 use poker_core::game::{Action, BetBounds, Chips, GameSpec, LegalActions, Stakes};
 use poker_wire::framing::{read_msg, write_msg};
-use poker_wire::message::{ArenaMsg, BotMsg, GameInfo};
+use poker_wire::message::{ArenaMsg, BotMsg};
 
 const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
@@ -28,12 +28,9 @@ const STAKES: Stakes = Stakes::Blinds {
 fn hello(timeout_ms: Option<u64>) -> ArenaMsg {
     ArenaMsg::Hello {
         proto: poker_wire::PROTO_VERSION,
-        game: GameInfo {
-            id: "holdem-nl".to_string(),
-            display_name: "No-Limit Texas Hold'em".to_string(),
-            stakes: STAKES,
-            betting: poker_wire::message::WireBetting::NoLimit,
-        },
+        game_id: "holdem-nl".to_string(),
+        stakes: STAKES,
+        betting: poker_wire::message::WireBetting::NoLimit,
         seat_count: 2,
         starting_stack: 10_000,
         timeout_ms,

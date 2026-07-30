@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""A minimal poker-arena wire bot in Python (protocol v1, no dependencies).
+"""A minimal poker-arena wire bot in Python (protocol v2, no dependencies).
 
 Reads arena messages from stdin, writes bot messages to stdout — run it with:
 
     poker-arena run --game holdem-nl \
         --bot cmd:"python3 examples/bot.py" --bot builtin:random
 
-Protocol reference: WIRE_PROTOCOL.md. The event stream is the single source
-of truth — `act` messages carry only the legal actions and deadline — so a
-bot tracks the little state it cares about from events, as this one does
-(its own cards and the pot size). The strategy is simple but legal across
-every registry game. Replace `decide()` with your own brain.
+Protocol reference: WIRE_PROTOCOL.md. `hello` carries only game_id plus the
+per-match parameters that can't be derived from it — bots are expected to
+know the named game's rules. The event stream is the single source of truth
+— `act` messages carry only the decision and deadline — so a bot tracks the
+little state it cares about from events, as this one does (its own cards and
+the pot size). The strategy is simple but legal across every registry game.
+Replace `decide()` with your own brain.
 """
 
 import json
@@ -55,35 +57,37 @@ class Table:
             self.hole.extend(ev["drawn"])
 
 
-def decide(table, legal):
-    """Return an action object conforming to `legal`."""
+def decide(table, decision):
+    """Return an action object conforming to `decision`."""
+    kind = decision["kind"]
+
     # Draw streets: discard high cards, up to the offered max.
-    draw = legal.get("draw")
-    if draw is not None:
+    if kind == "draw":
         high = [c for c in table.hole if c[0] in "9TJQKA"]
-        table.chosen_discards = high[: draw["max_discards"]]
+        table.chosen_discards = high[: decision["max_discards"]]
         return {"kind": "discard", "cards": table.chosen_discards}
 
     # Stud: always post the forced bring-in rather than completing.
-    if legal.get("bring_in") is not None:
+    if kind == "bring-in":
         return {"kind": "bring-in"}
 
-    # A crude opening heuristic: raise the minimum holding a pair or an ace.
+    # kind == "wager": a crude opening heuristic — raise/bet the minimum
+    # holding a pair or an ace, otherwise check, call cheap, or fold.
     ranks = [c[0] for c in table.hole]
     strong = len(set(ranks)) < len(ranks) or "A" in ranks
-    if strong and legal.get("raise") is not None:
-        return {"kind": "raise", "to": legal["raise"]["min_to"]}
-    if strong and legal.get("bet") is not None:
-        return {"kind": "bet", "to": legal["bet"]["min_to"]}
+    if strong and decision.get("raise") is not None:
+        return {"kind": "raise", "to": decision["raise"]["min_to"]}
+    if strong and decision.get("bet") is not None:
+        return {"kind": "bet", "to": decision["bet"]["min_to"]}
 
-    if legal.get("check"):
+    if decision.get("check"):
         return {"kind": "check"}
 
     # Call anything cheap relative to the pot; otherwise fold.
-    call = legal.get("call")
+    call = decision.get("call")
     if call is not None and call * 3 <= table.pot + call:
         return {"kind": "call"}
-    if legal.get("fold"):
+    if decision.get("fold"):
         return {"kind": "fold"}
     return {"kind": "call"}  # facing an all-in smaller than a third of pot
 
@@ -103,7 +107,7 @@ def main():
         elif t == "event":
             table.observe(msg["ev"])
         elif t == "act":
-            send({"t": "action", "action": decide(table, msg["legal"])})
+            send({"t": "action", "action": decide(table, msg["decision"])})
         elif t == "match-end":
             return
         # hand-end / unknown types: nothing to do.

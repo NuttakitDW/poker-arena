@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use poker_core::game::Action;
 use poker_wire::framing::{WireError, read_msg, write_msg};
-use poker_wire::message::{ArenaMsg, BotMsg};
+use poker_wire::message::{ArenaMsg, BotMsg, WireDecision};
 
 fn main() -> ExitCode {
     let mut name = "wire-caller".to_string();
@@ -78,23 +78,20 @@ fn play<R: BufRead, W: Write>(
             ArenaMsg::Hello { .. } => BotMsg::Join {
                 name: name.to_string(),
             },
-            ArenaMsg::Act { legal, .. } => {
+            ArenaMsg::Act { decision, .. } => {
                 if sleep_ms > 0 {
                     std::thread::sleep(Duration::from_millis(sleep_ms));
                 }
                 // Draw and bring-in decisions offer neither check nor call
-                // nor fold, so they're handled first: stand pat on a draw
-                // street, post the bring-in at a stud bring-in decision.
-                let action = if legal.draw.is_some() {
-                    Action::Discard { cards: Vec::new() }
-                } else if legal.bring_in.is_some() {
-                    Action::BringIn
-                } else if legal.check {
-                    Action::Check
-                } else if legal.call.is_some() {
-                    Action::Call
-                } else {
-                    Action::Fold
+                // nor fold, so they're handled by their own kind: stand pat
+                // on a draw street, post the bring-in at a stud bring-in
+                // decision. Otherwise it's an ordinary wager: check/call/fold.
+                let action = match decision {
+                    WireDecision::Draw { .. } => Action::Discard { cards: Vec::new() },
+                    WireDecision::BringIn { .. } => Action::BringIn,
+                    WireDecision::Wager { check: true, .. } => Action::Check,
+                    WireDecision::Wager { call: Some(_), .. } => Action::Call,
+                    WireDecision::Wager { .. } => Action::Fold,
                 };
                 BotMsg::Action { action }
             }

@@ -16,7 +16,7 @@ use poker_arena::log::{EventSink, JsonLog};
 use poker_arena::remote::WireBot;
 use poker_arena::runner::{Progress, run_match};
 use poker_core::game::{BettingKind, GameSpec, Stakes};
-use poker_wire::message::{ArenaMsg, GameInfo};
+use poker_wire::message::ArenaMsg;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -417,12 +417,9 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
     let starting_stack = args.stack_bb * args.bb;
     let hello = ArenaMsg::Hello {
         proto: poker_wire::PROTO_VERSION,
-        game: GameInfo {
-            id: spec.id.to_string(),
-            display_name: spec.display_name.to_string(),
-            stakes,
-            betting: spec.betting.into(),
-        },
+        game_id: spec.id.to_string(),
+        stakes,
+        betting: spec.betting.into(),
         seat_count: args.bots.len(),
         starting_stack,
         timeout_ms: timeout.map(|d| d.as_millis() as u64),

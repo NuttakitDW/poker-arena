@@ -14,7 +14,7 @@ use poker_arena::config::{DealingMode, FaultPolicy, MatchConfig};
 use poker_arena::remote::WireBot;
 use poker_arena::runner::run_match;
 use poker_core::game::{GameSpec, Stakes};
-use poker_wire::message::{ArenaMsg, GameInfo};
+use poker_wire::message::ArenaMsg;
 
 const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
@@ -307,12 +307,9 @@ fn stud8_fl_duplicate_heads_up_observation_count() {
 fn hello_for(spec: &GameSpec, starting_stack: u64, timeout_ms: Option<u64>) -> ArenaMsg {
     ArenaMsg::Hello {
         proto: poker_wire::PROTO_VERSION,
-        game: GameInfo {
-            id: spec.id.to_string(),
-            display_name: spec.display_name.to_string(),
-            stakes: spec.stakes,
-            betting: spec.betting.into(),
-        },
+        game_id: spec.id.to_string(),
+        stakes: spec.stakes,
+        betting: spec.betting.into(),
         seat_count: 2,
         starting_stack,
         timeout_ms,

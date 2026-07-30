@@ -12,22 +12,7 @@
 
 use poker_core::card::Card;
 use poker_core::eval::HandValue;
-use poker_core::game::{Action, Event, LegalActions, Stakes};
-
-/// Bot-facing description of the game being played. A deliberately small
-/// subset of `poker_core::game::GameSpec`, which is `Serialize`-only by
-/// design (its ids/labels are `&'static str` and its streets aren't
-/// something bots need to reconstruct).
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GameInfo {
-    pub id: String,
-    pub display_name: String,
-    pub stakes: Stakes,
-    /// Betting structure, tagged like `{"kind":"no-limit"}` |
-    /// `{"kind":"pot-limit"}` | `{"kind":"fixed-limit","raise_cap":4}`
-    /// (`raise_cap` null = uncapped).
-    pub betting: WireBetting,
-}
+use poker_core::game::{Action, BetBounds, Event, LegalActions, Stakes};
 
 /// Deserializable mirror of `poker_core::game::BettingKind` (core's is
 /// `Serialize`-only). Serializes identically: same tag, kebab-case variant
@@ -53,14 +38,72 @@ impl From<poker_core::game::BettingKind> for WireBetting {
     }
 }
 
+/// The decision offered to a bot at an `ArenaMsg::Act`. Exactly one decision
+/// family applies per turn — self-describing via `kind`, so bots switch on
+/// it instead of probing a bag of `Option`s the way `LegalActions` is
+/// structured internally.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum WireDecision {
+    /// A betting decision. Exactly one of `check`/`call` applies; `bet` and
+    /// `raise` are mutually exclusive.
+    Wager {
+        fold: bool,
+        check: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        call: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bet: Option<BetBounds>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        raise: Option<BetBounds>,
+    },
+    /// A draw-street decision: reply with a `discard` action (empty =
+    /// stand pat).
+    Draw { max_discards: u8 },
+    /// The stud bring-in decision: post `bring_in`, or complete per
+    /// `complete`.
+    BringIn { bring_in: u64, complete: BetBounds },
+}
+
+impl From<&LegalActions> for WireDecision {
+    fn from(legal: &LegalActions) -> WireDecision {
+        if let Some(draw) = legal.draw {
+            WireDecision::Draw {
+                max_discards: draw.max_discards,
+            }
+        } else if let Some(bring_in) = legal.bring_in {
+            WireDecision::BringIn {
+                bring_in,
+                complete: legal.bet.expect("bring-in always offers completion"),
+            }
+        } else {
+            WireDecision::Wager {
+                fold: legal.fold,
+                check: legal.check,
+                call: legal.call,
+                bet: legal.bet,
+                raise: legal.raise,
+            }
+        }
+    }
+}
+
 /// Messages sent from the arena to a bot.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "t", rename_all = "kebab-case")]
 pub enum ArenaMsg {
-    /// First message on a new connection: protocol and game parameters.
+    /// First message on a new connection: protocol and per-match parameters.
     Hello {
         proto: u32,
-        game: GameInfo,
+        /// Registry id, e.g. "drawmaha-27-fl". Bots are expected to know the
+        /// game's rules from its id; hello carries only the per-match
+        /// parameters that cannot be derived from it.
+        game_id: String,
+        stakes: Stakes,
+        /// Betting structure, tagged like `{"kind":"no-limit"}` |
+        /// `{"kind":"pot-limit"}` | `{"kind":"fixed-limit","raise_cap":4}`
+        /// (`raise_cap` null = uncapped).
+        betting: WireBetting,
         seat_count: usize,
         starting_stack: u64,
         timeout_ms: Option<u64>,
@@ -74,18 +117,18 @@ pub enum ArenaMsg {
     /// An observable event, already redacted for this bot's seat.
     Event { hand_no: u64, ev: WireEvent },
     /// It is this bot's turn; reply with a `BotMsg::Action` conforming to
-    /// `legal`. `deadline_ms` is echoed so bots can self-limit; the arena
+    /// `decision`. `deadline_ms` is echoed so bots can self-limit; the arena
     /// enforces the real deadline server-side regardless.
     ///
     /// Deliberately carries no table state: the event stream is the single
     /// source of truth (hole cards, board, upcards, stacks, pot, folds are
-    /// all reconstructible from the events already delivered), and `legal`
-    /// is here because legality must stay arena-authoritative — bots must
-    /// never derive it themselves.
+    /// all reconstructible from the events already delivered), and
+    /// `decision` is here because legality must stay arena-authoritative —
+    /// bots must never derive it themselves.
     Act {
         hand_no: u64,
         seat: usize,
-        legal: LegalActions,
+        decision: WireDecision,
         deadline_ms: Option<u64>,
     },
     /// End-of-hand summary; `nets[seat]` is this bot's own result too.
@@ -450,15 +493,12 @@ mod tests {
         vec![
             ArenaMsg::Hello {
                 proto: crate::PROTO_VERSION,
-                game: GameInfo {
-                    id: "holdem-nl".to_string(),
-                    display_name: "No-Limit Texas Hold'em".to_string(),
-                    stakes: Stakes::Blinds {
-                        small_blind: 50,
-                        big_blind: 100,
-                    },
-                    betting: WireBetting::NoLimit,
+                game_id: "holdem-nl".to_string(),
+                stakes: Stakes::Blinds {
+                    small_blind: 50,
+                    big_blind: 100,
                 },
+                betting: WireBetting::NoLimit,
                 seat_count: 2,
                 starting_stack: 10_000,
                 timeout_ms: Some(5_000),
@@ -476,7 +516,7 @@ mod tests {
             ArenaMsg::Act {
                 hand_no: 1,
                 seat: 0,
-                legal: sample_legal_actions(),
+                decision: WireDecision::from(&sample_legal_actions()),
                 deadline_ms: Some(5_000),
             },
             ArenaMsg::HandEnd {
@@ -519,21 +559,18 @@ mod tests {
         }
     }
 
-    /// Pin the exact wire format for two representative lines so a change to
+    /// Pin the exact wire format for representative lines so a change to
     /// field names/order/case is caught by a test, not just by round-trip.
     #[test]
     fn hello_message_has_the_expected_exact_json() {
         let msg = ArenaMsg::Hello {
             proto: 1,
-            game: GameInfo {
-                id: "holdem-nl".to_string(),
-                display_name: "No-Limit Texas Hold'em".to_string(),
-                stakes: Stakes::Blinds {
-                    small_blind: 50,
-                    big_blind: 100,
-                },
-                betting: WireBetting::NoLimit,
+            game_id: "holdem-nl".to_string(),
+            stakes: Stakes::Blinds {
+                small_blind: 50,
+                big_blind: 100,
             },
+            betting: WireBetting::NoLimit,
             seat_count: 2,
             starting_stack: 10_000,
             timeout_ms: Some(5_000),
@@ -541,7 +578,58 @@ mod tests {
         let text = serde_json::to_string(&msg).unwrap();
         assert_eq!(
             text,
-            r#"{"t":"hello","proto":1,"game":{"id":"holdem-nl","display_name":"No-Limit Texas Hold'em","stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"no-limit"}},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}"#
+            r#"{"t":"hello","proto":1,"game_id":"holdem-nl","stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"no-limit"},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}"#
+        );
+    }
+
+    #[test]
+    fn act_message_has_the_expected_exact_json_per_decision_kind() {
+        let wager = ArenaMsg::Act {
+            hand_no: 1,
+            seat: 0,
+            decision: WireDecision::Wager {
+                fold: true,
+                check: false,
+                call: Some(100),
+                bet: None,
+                raise: Some(BetBounds {
+                    min_to: 200,
+                    max_to: 10_000,
+                }),
+            },
+            deadline_ms: Some(5_000),
+        };
+        assert_eq!(
+            serde_json::to_string(&wager).unwrap(),
+            r#"{"t":"act","hand_no":1,"seat":0,"decision":{"kind":"wager","fold":true,"check":false,"call":100,"raise":{"min_to":200,"max_to":10000}},"deadline_ms":5000}"#
+        );
+
+        let draw = ArenaMsg::Act {
+            hand_no: 4,
+            seat: 1,
+            decision: WireDecision::Draw { max_discards: 3 },
+            deadline_ms: Some(5_000),
+        };
+        assert_eq!(
+            serde_json::to_string(&draw).unwrap(),
+            r#"{"t":"act","hand_no":4,"seat":1,"decision":{"kind":"draw","max_discards":3},"deadline_ms":5000}"#
+        );
+
+        let bring_in = ArenaMsg::Act {
+            hand_no: 9,
+            seat: 2,
+            decision: WireDecision::BringIn {
+                bring_in: 10,
+                complete: BetBounds {
+                    min_to: 20,
+                    max_to: 20,
+                },
+            },
+            deadline_ms: Some(5_000),
+        };
+        assert_eq!(
+            serde_json::to_string(&bring_in).unwrap(),
+            r#"{"t":"act","hand_no":9,"seat":2,"decision":{"kind":"bring-in","bring_in":10,"complete":{"min_to":20,"max_to":20}},"deadline_ms":5000}"#
         );
     }
 
@@ -552,6 +640,151 @@ mod tests {
         };
         let text = serde_json::to_string(&msg).unwrap();
         assert_eq!(text, r#"{"t":"action","action":{"kind":"raise","to":300}}"#);
+    }
+
+    // ---- WireDecision::from(&LegalActions) ----
+
+    #[test]
+    fn wager_decision_facing_a_bet_maps_fold_call_raise() {
+        let legal = LegalActions {
+            fold: true,
+            check: false,
+            call: Some(100),
+            bet: None,
+            raise: Some(BetBounds {
+                min_to: 300,
+                max_to: 10_000,
+            }),
+            bring_in: None,
+            draw: None,
+        };
+        assert_eq!(
+            WireDecision::from(&legal),
+            WireDecision::Wager {
+                fold: true,
+                check: false,
+                call: Some(100),
+                bet: None,
+                raise: Some(BetBounds {
+                    min_to: 300,
+                    max_to: 10_000,
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn wager_decision_free_check_maps_check_with_no_call_or_fold() {
+        let legal = LegalActions {
+            fold: false,
+            check: true,
+            call: None,
+            bet: Some(BetBounds {
+                min_to: 100,
+                max_to: 9_900,
+            }),
+            raise: None,
+            bring_in: None,
+            draw: None,
+        };
+        assert_eq!(
+            WireDecision::from(&legal),
+            WireDecision::Wager {
+                fold: false,
+                check: true,
+                call: None,
+                bet: Some(BetBounds {
+                    min_to: 100,
+                    max_to: 9_900,
+                }),
+                raise: None,
+            }
+        );
+    }
+
+    #[test]
+    fn wager_decision_bet_available_maps_bet_bounds() {
+        let legal = LegalActions {
+            fold: false,
+            check: true,
+            call: None,
+            bet: Some(BetBounds {
+                min_to: 50,
+                max_to: 5_000,
+            }),
+            raise: None,
+            bring_in: None,
+            draw: None,
+        };
+        let WireDecision::Wager { bet, raise, .. } = WireDecision::from(&legal) else {
+            panic!("expected a Wager decision");
+        };
+        assert_eq!(
+            bet,
+            Some(BetBounds {
+                min_to: 50,
+                max_to: 5_000
+            })
+        );
+        assert_eq!(raise, None);
+    }
+
+    #[test]
+    fn draw_legal_actions_map_to_draw_decision() {
+        let legal = LegalActions {
+            fold: false,
+            check: false,
+            call: None,
+            bet: None,
+            raise: None,
+            bring_in: None,
+            draw: Some(poker_core::game::DrawBounds { max_discards: 3 }),
+        };
+        assert_eq!(
+            WireDecision::from(&legal),
+            WireDecision::Draw { max_discards: 3 }
+        );
+    }
+
+    #[test]
+    fn bring_in_legal_actions_map_to_bring_in_decision_using_bet_as_complete() {
+        let legal = LegalActions {
+            fold: false,
+            check: false,
+            call: None,
+            bet: Some(BetBounds {
+                min_to: 20,
+                max_to: 20,
+            }),
+            raise: None,
+            bring_in: Some(10),
+            draw: None,
+        };
+        assert_eq!(
+            WireDecision::from(&legal),
+            WireDecision::BringIn {
+                bring_in: 10,
+                complete: BetBounds {
+                    min_to: 20,
+                    max_to: 20,
+                },
+            }
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "bring-in always offers completion")]
+    fn bring_in_without_a_completion_bet_panics() {
+        let legal = LegalActions {
+            fold: false,
+            check: false,
+            call: None,
+            bet: None,
+            raise: None,
+            bring_in: Some(10),
+            draw: None,
+        };
+        let _ = WireDecision::from(&legal);
     }
 
     #[test]
