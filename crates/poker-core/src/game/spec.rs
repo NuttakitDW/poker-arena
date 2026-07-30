@@ -29,8 +29,18 @@ pub enum ForcedBets {
     /// Blind games. Heads-up: the button posts the small blind. `ante` is per
     /// player (0 for none).
     Blinds { ante: Chips },
-    /// Stud games: everyone antes, lowest upcard posts the bring-in (M3).
-    BringIn { ante: Chips, bring_in: Chips },
+    /// Stud games: everyone antes, then the worst door card posts the
+    /// bring-in. `low` flips the direction for razz-style games: when
+    /// `false` (stud/stud8) the LOWEST upcard brings in and the best
+    /// showing high hand leads later streets; when `true` (razz) the
+    /// HIGHEST upcard brings in and the best showing *low* hand leads.
+    /// Bring-in ties break by suit (clubs < diamonds < hearts < spades:
+    /// lowest suit brings in for high games, highest for razz).
+    BringIn {
+        ante: Chips,
+        bring_in: Chips,
+        low: bool,
+    },
 }
 
 /// The betting structure.
@@ -258,6 +268,13 @@ impl GameSpec {
             "omaha-pl" => Some(Self::omaha_pl(stakes)),
             "omaha8-pl" => Some(Self::omaha8_pl(stakes)),
             "omaha8-fl" => Some(Self::omaha8_fl(stakes)),
+            "stud-fl" => Some(Self::stud_fl(stakes)),
+            "stud8-fl" => Some(Self::stud8_fl(stakes)),
+            "razz-fl" => Some(Self::razz_fl(stakes)),
+            "27td-fl" => Some(Self::td27_fl(stakes)),
+            "a5td-fl" => Some(Self::a5td_fl(stakes)),
+            "badugi-fl" => Some(Self::badugi_fl(stakes)),
+            "5cd-nl" => Some(Self::fcd_nl(stakes)),
             _ => None,
         }
     }
@@ -270,7 +287,196 @@ impl GameSpec {
             "omaha-pl",
             "omaha8-pl",
             "omaha8-fl",
+            "stud-fl",
+            "stud8-fl",
+            "razz-fl",
+            "27td-fl",
+            "a5td-fl",
+            "badugi-fl",
+            "5cd-nl",
         ]
+    }
+
+    /// Seven-card stud, fixed limit.
+    pub fn stud_fl(stakes: Stakes) -> GameSpec {
+        GameSpec {
+            id: "stud-fl",
+            display_name: "Seven-Card Stud",
+            ..Self::stud_base(stakes, false)
+        }
+    }
+
+    /// Seven-card stud hi-lo (eight or better), fixed limit.
+    pub fn stud8_fl(stakes: Stakes) -> GameSpec {
+        GameSpec {
+            id: "stud8-fl",
+            display_name: "Seven-Card Stud Hi-Lo (8 or Better)",
+            showdown: ShowdownSpec {
+                pot_split: PotSplit::HiLo {
+                    hi: EvalKind::High,
+                    lo: EvalKind::EightOrBetterLow,
+                },
+                hole_usage: HoleUsage::Any,
+            },
+            ..Self::stud_base(stakes, false)
+        }
+    }
+
+    /// Razz (seven-card stud played for A-5 low), fixed limit.
+    pub fn razz_fl(stakes: Stakes) -> GameSpec {
+        GameSpec {
+            id: "razz-fl",
+            display_name: "Razz",
+            showdown: ShowdownSpec {
+                pot_split: PotSplit::Hi(EvalKind::AceToFiveLow),
+                hole_usage: HoleUsage::Any,
+            },
+            ..Self::stud_base(stakes, true)
+        }
+    }
+
+    /// Shared stud skeleton. Stakes follow the fixed-limit convention
+    /// (small bet = big blind, big bet = 2×); derived forced bets: ante =
+    /// small bet / 5, bring-in = small bet / 2 (each at least 1). Seats cap
+    /// at 7 so a full run-out never exhausts the deck (7 × 7 = 49 ≤ 52);
+    /// the 8-handed shared-community-card fallback is deliberately out of
+    /// scope. Third street is two spec streets: a bet-less deal of the down
+    /// cards, then the door card with the bring-in betting round.
+    fn stud_base(stakes: Stakes, low: bool) -> GameSpec {
+        use BetTier::*;
+        let small_bet = stakes.big_blind;
+        let street = |label, deal, tier| StreetSpec {
+            label,
+            deal,
+            betting: Some(BetRoundSpec {
+                tier,
+                first_to_act: FirstToAct::ByUpcards,
+            }),
+        };
+        GameSpec {
+            id: "stud",
+            display_name: "Seven-Card Stud",
+            seats: 2..=7,
+            stakes,
+            forced_bets: ForcedBets::BringIn {
+                ante: (small_bet / 5).max(1),
+                bring_in: (small_bet / 2).max(1),
+                low,
+            },
+            betting: BettingKind::FixedLimit { raise_cap: Some(4) },
+            streets: vec![
+                StreetSpec {
+                    label: "deal",
+                    deal: DealSpec::HolePrivate(2),
+                    betting: None,
+                },
+                street("third", DealSpec::HoleUp(1), Small),
+                street("fourth", DealSpec::HoleUp(1), Small),
+                street("fifth", DealSpec::HoleUp(1), Big),
+                street("sixth", DealSpec::HoleUp(1), Big),
+                street("seventh", DealSpec::HolePrivate(1), Big),
+            ],
+            showdown: ShowdownSpec {
+                pot_split: PotSplit::Hi(EvalKind::High),
+                hole_usage: HoleUsage::Any,
+            },
+        }
+    }
+
+    /// 2-7 (Kansas City) triple draw, fixed limit.
+    pub fn td27_fl(stakes: Stakes) -> GameSpec {
+        GameSpec {
+            id: "27td-fl",
+            display_name: "2-7 Triple Draw",
+            showdown: Self::draw_showdown(EvalKind::DeuceToSevenLow),
+            ..Self::triple_draw_base(stakes, 5)
+        }
+    }
+
+    /// A-5 (California) triple draw, fixed limit.
+    pub fn a5td_fl(stakes: Stakes) -> GameSpec {
+        GameSpec {
+            id: "a5td-fl",
+            display_name: "A-5 Triple Draw",
+            showdown: Self::draw_showdown(EvalKind::AceToFiveLow),
+            ..Self::triple_draw_base(stakes, 5)
+        }
+    }
+
+    /// Badugi, fixed limit.
+    pub fn badugi_fl(stakes: Stakes) -> GameSpec {
+        GameSpec {
+            id: "badugi-fl",
+            display_name: "Badugi",
+            showdown: Self::draw_showdown(EvalKind::Badugi),
+            ..Self::triple_draw_base(stakes, 4)
+        }
+    }
+
+    /// Five-card draw, no limit (single draw).
+    pub fn fcd_nl(stakes: Stakes) -> GameSpec {
+        use BetTier::*;
+        use FirstToAct::*;
+        let street = |label, deal, tier, first_to_act| StreetSpec {
+            label,
+            deal,
+            betting: Some(BetRoundSpec { tier, first_to_act }),
+        };
+        GameSpec {
+            id: "5cd-nl",
+            display_name: "No-Limit Five-Card Draw",
+            seats: 2..=6,
+            stakes,
+            forced_bets: ForcedBets::Blinds { ante: 0 },
+            betting: BettingKind::NoLimit,
+            streets: vec![
+                street("predraw", DealSpec::HolePrivate(5), Small, AfterBlinds),
+                street("draw", DealSpec::Draw { max: 5 }, Small, LeftOfButton),
+            ],
+            showdown: Self::draw_showdown(EvalKind::High),
+        }
+    }
+
+    /// Triple-draw skeleton: blinds, three draws, small bets through the
+    /// first draw round and big bets after. Seats cap at 6 (standard for
+    /// draw games); heavy multiway drawing can still exhaust the deck, which
+    /// the engine handles by reshuffling the discards.
+    fn triple_draw_base(stakes: Stakes, hand_size: u8) -> GameSpec {
+        use BetTier::*;
+        use FirstToAct::*;
+        let street = |label, deal, tier, first_to_act| StreetSpec {
+            label,
+            deal,
+            betting: Some(BetRoundSpec { tier, first_to_act }),
+        };
+        let draw = DealSpec::Draw { max: hand_size };
+        GameSpec {
+            id: "triple-draw",
+            display_name: "Triple Draw",
+            seats: 2..=6,
+            stakes,
+            forced_bets: ForcedBets::Blinds { ante: 0 },
+            betting: BettingKind::FixedLimit { raise_cap: Some(4) },
+            streets: vec![
+                street(
+                    "predraw",
+                    DealSpec::HolePrivate(hand_size),
+                    Small,
+                    AfterBlinds,
+                ),
+                street("draw1", draw.clone(), Small, LeftOfButton),
+                street("draw2", draw.clone(), Big, LeftOfButton),
+                street("draw3", draw, Big, LeftOfButton),
+            ],
+            showdown: Self::draw_showdown(EvalKind::High),
+        }
+    }
+
+    fn draw_showdown(kind: EvalKind) -> ShowdownSpec {
+        ShowdownSpec {
+            pot_split: PotSplit::Hi(kind),
+            hole_usage: HoleUsage::AllOwn,
+        }
     }
 
     /// Fixed-limit bet size for a tier under these stakes.

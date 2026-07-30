@@ -13,6 +13,9 @@ use poker_core::card::Deck;
 use poker_core::game::{Action, Event, HandError, HandState};
 use poker_core::rng::Rng64;
 
+/// Seed salt separating reshuffle RNG streams from deck-shuffle streams.
+const RESHUFFLE_SALT: u64 = 0x5245_5348_5546_4C31;
+
 use crate::bot::{ActionRequest, Bot, HandEnd, HandStart};
 use crate::config::{DealingMode, FaultPolicy, MatchConfig};
 use crate::log::EventSink;
@@ -239,7 +242,10 @@ fn play_hand(
 ) -> Result<HandOutcome, MatchError> {
     let n = bots.len();
     let stacks = vec![config.starting_stack; n];
-    let (mut state, ev0) = HandState::new(&config.spec, &stacks, 0, hand_no, deck)?;
+    // Draw-street reshuffles get their own deterministic stream, salted so
+    // it never collides with the deck-shuffle streams.
+    let reshuffle_rng = Rng64::from_seed_stream(config.seed ^ RESHUFFLE_SALT, hand_no);
+    let (mut state, ev0) = HandState::new(&config.spec, &stacks, 0, hand_no, deck, reshuffle_rng)?;
 
     if let Some(s) = sink {
         s.hand_start(hand_no);

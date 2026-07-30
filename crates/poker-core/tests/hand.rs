@@ -15,6 +15,10 @@ use poker_core::game::spec::{
 use poker_core::game::state::{ActionError, HandState};
 use poker_core::rng::Rng64;
 
+fn test_rng() -> Rng64 {
+    Rng64::from_seed_stream(0, 0)
+}
+
 const STAKES: Stakes = Stakes {
     small_blind: 50,
     big_blind: 100,
@@ -91,7 +95,8 @@ fn assert_conserved(hand: &HandState) {
 fn heads_up_limp_check_down_to_showdown() {
     let holes = ["Ah Ad", "Kh Kd"];
     let deck = deck_for(0, &holes, "2c 7d 9s Ts 3h");
-    let (mut hand, setup) = HandState::new(&nl(2), &[10_000, 10_000], 0, 7, deck).unwrap();
+    let (mut hand, setup) =
+        HandState::new(&nl(2), &[10_000, 10_000], 0, 7, deck, test_rng()).unwrap();
 
     assert_eq!(
         setup,
@@ -176,7 +181,7 @@ fn heads_up_limp_check_down_to_showdown() {
 #[test]
 fn heads_up_raise_fold_refunds_uncalled_bet() {
     let deck = deck_for(0, &["Ah Ad", "Kh Kd"], "2c 7d 9s Ts 3h");
-    let (mut hand, _) = HandState::new(&nl(2), &[10_000, 10_000], 0, 1, deck).unwrap();
+    let (mut hand, _) = HandState::new(&nl(2), &[10_000, 10_000], 0, 1, deck, test_rng()).unwrap();
 
     let ev = play(&mut hand, &[Action::Raise { to: 300 }, Action::Fold]);
     assert_eq!(
@@ -200,7 +205,7 @@ fn heads_up_raise_fold_refunds_uncalled_bet() {
 #[test]
 fn heads_up_check_raise_line() {
     let deck = deck_for(0, &["Ah Ad", "Kh Kd"], "2c 7d 9s Ts 3h");
-    let (mut hand, _) = HandState::new(&nl(2), &[10_000, 10_000], 0, 1, deck).unwrap();
+    let (mut hand, _) = HandState::new(&nl(2), &[10_000, 10_000], 0, 1, deck, test_rng()).unwrap();
     play(&mut hand, &[Action::Call, Action::Check]);
 
     // Flop: BB checks, button bets, BB check-raises, button calls.
@@ -234,7 +239,7 @@ fn heads_up_check_raise_line() {
 #[test]
 fn heads_up_all_in_preflop_runs_out_immediately() {
     let deck = deck_for(0, &["Ah Ad", "Kh Kd"], "2c 7d 9s Ts 3h");
-    let (mut hand, _) = HandState::new(&nl(2), &[1_000, 1_000], 0, 1, deck).unwrap();
+    let (mut hand, _) = HandState::new(&nl(2), &[1_000, 1_000], 0, 1, deck, test_rng()).unwrap();
 
     let ev = play(&mut hand, &[Action::Raise { to: 1_000 }, Action::Call]);
     assert_eq!(ev[0], acted(0, Action::Raise { to: 1_000 }, 1_000, true));
@@ -285,7 +290,9 @@ fn heads_up_all_in_preflop_runs_out_immediately() {
 /// Seats: 0 = button/UTG (3-handed), 1 = small blind, 2 = big blind.
 fn three_handed(stacks: &[Chips; 3]) -> HandState {
     let deck = deck_for(0, &["Ah Ad", "Kh Kd", "Qh Qd"], "2c 7d 9s Ts 3h");
-    HandState::new(&nl(3), stacks, 0, 1, deck).unwrap().0
+    HandState::new(&nl(3), stacks, 0, 1, deck, test_rng())
+        .unwrap()
+        .0
 }
 
 #[test]
@@ -450,8 +457,15 @@ fn pot_limit(seats: u8) -> GameSpec {
 #[test]
 fn pot_limit_maximum_follows_call_then_pot_formula() {
     let deck = deck_for(0, &["Ah Ad", "Kh Kd", "Qh Qd"], "2c 7d 9s Ts 3h");
-    let (mut hand, _) =
-        HandState::new(&pot_limit(3), &[10_000, 10_000, 10_000], 0, 1, deck).unwrap();
+    let (mut hand, _) = HandState::new(
+        &pot_limit(3),
+        &[10_000, 10_000, 10_000],
+        0,
+        1,
+        deck,
+        test_rng(),
+    )
+    .unwrap();
 
     // Pot 150, seat 0 calls 100 -> max raise-to = 100 + (150 + 100) = 350.
     assert_eq!(hand.pot_total(), 150);
@@ -494,7 +508,15 @@ fn pot_limit_maximum_follows_call_then_pot_formula() {
 fn pot_limit_maximum_clamps_to_a_short_stack() {
     let deck = deck_for(0, &["Ah Ad", "Kh Kd", "Qh Qd"], "2c 7d 9s Ts 3h");
     // Seat 0 can only reach 250, below the 350 pot maximum.
-    let (hand, _) = HandState::new(&pot_limit(3), &[250, 10_000, 10_000], 0, 1, deck).unwrap();
+    let (hand, _) = HandState::new(
+        &pot_limit(3),
+        &[250, 10_000, 10_000],
+        0,
+        1,
+        deck,
+        test_rng(),
+    )
+    .unwrap();
     assert_eq!(
         hand.legal_actions().unwrap().raise,
         Some(BetBounds {
@@ -509,7 +531,8 @@ fn pot_limit_maximum_clamps_to_a_short_stack() {
 #[test]
 fn fixed_limit_tier_sizes_and_raise_cap() {
     let deck = deck_for(0, &["Ah Ad", "Kh Kd", "Qh Qd"], "2c 7d 9s Ts 3h");
-    let (mut hand, _) = HandState::new(&fl(3), &[10_000, 10_000, 10_000], 0, 1, deck).unwrap();
+    let (mut hand, _) =
+        HandState::new(&fl(3), &[10_000, 10_000, 10_000], 0, 1, deck, test_rng()).unwrap();
 
     // Preflop tier = big blind; the blind itself is wager 1.
     let fixed = |to| {
@@ -555,7 +578,8 @@ fn fixed_limit_tier_sizes_and_raise_cap() {
 #[test]
 fn fixed_limit_big_blind_option() {
     let deck = deck_for(0, &["Ah Ad", "Kh Kd", "Qh Qd"], "2c 7d 9s Ts 3h");
-    let (mut hand, _) = HandState::new(&fl(3), &[10_000, 10_000, 10_000], 0, 1, deck).unwrap();
+    let (mut hand, _) =
+        HandState::new(&fl(3), &[10_000, 10_000, 10_000], 0, 1, deck, test_rng()).unwrap();
     play(&mut hand, &[Action::Call, Action::Call]);
     assert_eq!(hand.to_act(), Some(2));
     let la = hand.legal_actions().unwrap();
@@ -577,7 +601,8 @@ fn fixed_limit_short_all_in_below_half_a_bet_does_not_count_toward_the_cap() {
     // Seat 0 can only add 40 to the 100 price — under half the 100 tier, so
     // it is a call-and-more and the cap is still at wager 1.
     let deck = deck_for(0, &["Ah Ad", "Kh Kd", "Qh Qd"], "2c 7d 9s Ts 3h");
-    let (mut hand, _) = HandState::new(&fl(3), &[140, 10_000, 10_000], 0, 1, deck).unwrap();
+    let (mut hand, _) =
+        HandState::new(&fl(3), &[140, 10_000, 10_000], 0, 1, deck, test_rng()).unwrap();
     assert_eq!(
         hand.legal_actions().unwrap().raise,
         Some(BetBounds {
@@ -613,7 +638,8 @@ fn fixed_limit_short_all_in_of_half_a_bet_counts_toward_the_cap() {
     // Seat 0 adds 60 to the 100 price — at least half the 100 tier, so it
     // is a full wager and consumes a cap slot.
     let deck = deck_for(0, &["Ah Ad", "Kh Kd", "Qh Qd"], "2c 7d 9s Ts 3h");
-    let (mut hand, _) = HandState::new(&fl(3), &[160, 10_000, 10_000], 0, 1, deck).unwrap();
+    let (mut hand, _) =
+        HandState::new(&fl(3), &[160, 10_000, 10_000], 0, 1, deck, test_rng()).unwrap();
     play(
         &mut hand,
         &[
@@ -630,7 +656,7 @@ fn fixed_limit_short_all_in_of_half_a_bet_counts_toward_the_cap() {
 #[test]
 fn fixed_limit_heads_up_end_to_end() {
     let deck = deck_for(0, &["Ah Ad", "Kh Kd"], "2c 7d 9s Ts 3h");
-    let (mut hand, _) = HandState::new(&fl(2), &[10_000, 10_000], 0, 1, deck).unwrap();
+    let (mut hand, _) = HandState::new(&fl(2), &[10_000, 10_000], 0, 1, deck, test_rng()).unwrap();
     play(&mut hand, &[Action::Call, Action::Check]);
     // Flop 100-sized: bet, raise, call.
     play(
@@ -664,7 +690,8 @@ fn four_handed_two_level_side_pots_with_a_folder() {
     // Seat 1 tops out at 300, seat 2 at 600; seat 0 folds having put in 200.
     let holes = ["2c 2d", "Ah As", "Kh Ks", "Qh Qs"];
     let deck = deck_for(0, &holes, "7c 8d 9h Jd 4s");
-    let (mut hand, _) = HandState::new(&nl(4), &[10_000, 300, 600, 10_000], 0, 1, deck).unwrap();
+    let (mut hand, _) =
+        HandState::new(&nl(4), &[10_000, 300, 600, 10_000], 0, 1, deck, test_rng()).unwrap();
 
     assert_eq!(hand.to_act(), Some(3));
     let ev = play(
@@ -709,7 +736,8 @@ fn split_pot_odd_chip_goes_left_of_the_button() {
     spec.seats = 2..=9;
     let holes = ["2c 3c", "8d 9d", "4h 5h"];
     let deck = deck_for(0, &holes, "As Ks Qs Js Ts");
-    let (mut hand, _) = HandState::new(&spec, &[1_000, 1_000, 1_000], 0, 1, deck).unwrap();
+    let (mut hand, _) =
+        HandState::new(&spec, &[1_000, 1_000, 1_000], 0, 1, deck, test_rng()).unwrap();
 
     play(
         &mut hand,
@@ -787,7 +815,7 @@ fn short_big_blind_does_not_lower_the_price() {
 #[test]
 fn both_blinds_all_in_from_posting_runs_out_from_new() {
     let deck = deck_for(0, &["Ah Ad", "Kh Kd"], "2c 7d 9s Ts 3h");
-    let (hand, ev) = HandState::new(&nl(2), &[40, 30], 0, 1, deck).unwrap();
+    let (hand, ev) = HandState::new(&nl(2), &[40, 30], 0, 1, deck, test_rng()).unwrap();
 
     assert_eq!(hand.to_act(), None);
     assert!(hand.is_over());
@@ -826,7 +854,8 @@ fn antes_are_pot_chips_but_not_street_commitment() {
     let mut spec = nl(3);
     spec.forced_bets = ForcedBets::Blinds { ante: 10 };
     let deck = deck_for(0, &["Ah Ad", "Kh Kd", "Qh Qd"], "2c 7d 9s Ts 3h");
-    let (mut hand, _) = HandState::new(&spec, &[10_000, 10_000, 10_000], 0, 1, deck).unwrap();
+    let (mut hand, _) =
+        HandState::new(&spec, &[10_000, 10_000, 10_000], 0, 1, deck, test_rng()).unwrap();
     assert_eq!(hand.pot_total(), 180);
     assert_eq!(hand.street_commits(), &[0, 50, 100]);
     assert_eq!(hand.legal_actions().unwrap().call, Some(100));
@@ -915,7 +944,7 @@ fn hi_lo_split_pot_awards_both_sides() {
         hole_usage: HoleUsage::Any,
     };
     let deck = deck_for(0, &["Kh Kd", "Ac 2c"], "3d 4h 8s Ks 9c");
-    let (mut hand, _) = HandState::new(&spec, &[1_000, 1_000], 0, 1, deck).unwrap();
+    let (mut hand, _) = HandState::new(&spec, &[1_000, 1_000], 0, 1, deck, test_rng()).unwrap();
     play(&mut hand, &[Action::Call, Action::Check]);
     play(&mut hand, &[Action::Check, Action::Check]);
     play(&mut hand, &[Action::Check, Action::Check]);
@@ -981,7 +1010,8 @@ fn random_action(la: &LegalActions, rng: &mut Rng64) -> Action {
 fn random_hand(spec: &GameSpec, stacks: &[Chips], button: Seat, seed: u64) -> Vec<Event> {
     let mut rng = Rng64::from_seed_stream(seed, 0);
     let deck = Deck::shuffled(&mut rng);
-    let (mut hand, mut events) = HandState::new(spec, stacks, button, seed, deck).unwrap();
+    let (mut hand, mut events) =
+        HandState::new(spec, stacks, button, seed, deck, test_rng()).unwrap();
 
     let mut steps = 0;
     while let Some(la) = hand.legal_actions() {
@@ -1155,7 +1185,7 @@ fn deal_spec_none_street_is_supported() {
     let mut spec = nl(2);
     spec.streets[3].deal = DealSpec::None;
     let deck = deck_for(0, &["Ah Ad", "Kh Kd"], "2c 7d 9s Ts");
-    let (mut hand, _) = HandState::new(&spec, &[1_000, 1_000], 0, 1, deck).unwrap();
+    let (mut hand, _) = HandState::new(&spec, &[1_000, 1_000], 0, 1, deck, test_rng()).unwrap();
     play(&mut hand, &[Action::Call, Action::Check]);
     play(&mut hand, &[Action::Check, Action::Check]);
     play(&mut hand, &[Action::Check, Action::Check]);
@@ -1171,7 +1201,7 @@ fn left_of_button_ordering_skips_folded_seats() {
     spec.streets[0].betting.as_mut().unwrap().first_to_act = FirstToAct::AfterBlinds;
     let holes = ["2c 2d", "Ah As", "Kh Ks", "Qh Qs"];
     let deck = deck_for(0, &holes, "7c 8d 9h Jd 4s");
-    let (mut hand, _) = HandState::new(&spec, &[1_000; 4], 0, 1, deck).unwrap();
+    let (mut hand, _) = HandState::new(&spec, &[1_000; 4], 0, 1, deck, test_rng()).unwrap();
     // Seat 3 opens; seat 1 (the small blind) folds.
     play(
         &mut hand,

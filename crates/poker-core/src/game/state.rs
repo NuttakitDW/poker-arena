@@ -81,11 +81,72 @@
 //! - `HandEnd { nets }` closes the hand: `nets[s] = won − contributed`,
 //!   `sum(nets) == 0` (chip conservation — property-tested).
 //!
+//! ## Stud games (`ForcedBets::BringIn`)
+//! - Setup: every seat antes (all-in capped; antes count toward
+//!   contributions, never street commitment), then streets are dealt/opened
+//!   in spec order. Bet-less streets (`betting: None`) just deal.
+//!   `DealSpec::HoleUp` deals face-up cards: tracked separately from down
+//!   cards, emitted as public `DealUp` events.
+//! - **Bring-in decision** (first street with a betting round): the worst
+//!   door card posts. Because `Card::index = rank*4 + suit` with suit order
+//!   clubs < diamonds < hearts < spades, the bring-in seat is simply
+//!   min-by-`Card::index` of the door cards for high games (`low: false`)
+//!   and max-by-index for razz (`low: true`) — rank first, suit breaking
+//!   ties, exactly the standard rule. That seat must act with
+//!   `LegalActions { bring_in: Some(min(bring_in, stack)), bet: Some(small
+//!   bet bounds, all-in capped), .. }` — no fold/check/call.
+//!   `Action::BringIn` posts the bring-in (emitted as a normal `Acted`
+//!   event); `Action::Bet { to: small_bet }` "completes" directly.
+//! - **Cap accounting**: stud rounds start at `wagers = 0` (the blind-game
+//!   "big blind counts as wager 1" rule does NOT apply). A bring-in does
+//!   not count toward the cap; a completion (whether the bring-in seat's
+//!   direct `Bet` or a later seat's `Raise { to: small_bet }`) is wager 1.
+//!   The existing fixed-limit half-bet rule composes: completion over a
+//!   half-bet bring-in is `inc == tier/2`, which `is_full_wager` already
+//!   accepts. Raises then step by the street tier as usual.
+//! - **`FirstToAct::ByUpcards`** (all post-bring-in streets): the best
+//!   *showing* hand acts first. Visible strength uses upcard ranks only
+//!   (no suits): group ranks — quads > trips > two pair > pair > high
+//!   cards — tiebreak by ranks descending; for `low: true` the best A-5
+//!   low showing leads (pairs hurt). Ties break by seat order starting
+//!   left of the button. If the leader cannot act (all-in), the first
+//!   actionable seat clockwise from the leader opens.
+//! - Showdown: evaluate down + up cards together (7 cards) via
+//!   `best_with_usage(kind, HoleUsage::Any, all_seven, &[])`.
+//!   `ShowdownShow.cards` carries all seven.
+//! - Stud specs cap seats at 7 so the deck always suffices; the upfront
+//!   `cards_needed` check stays.
+//!
+//! ## Draw streets (`DealSpec::Draw { max }`)
+//! - A draw street runs a **draw phase** before its betting round. Every
+//!   non-folded seat — including all-in seats — acts exactly once, in seat
+//!   order starting left of the button: `LegalActions { draw:
+//!   Some(DrawBounds { max_discards: max }), .. }` only (no other family).
+//!   `Action::Discard { cards }` must reference distinct cards the seat
+//!   actually holds, at most `max`; empty = stand pat. Replacements are
+//!   dealt immediately (before the next seat draws): the seat's hand loses
+//!   the discards and gains the drawn cards; emit
+//!   `DrawResult { seat, discarded, drawn }` (drawn is private).
+//! - **Deck exhaustion**: if the deck holds fewer cards than a replacement
+//!   request, deal what remains, then reshuffle the discard pile (every
+//!   card discarded earlier this hand, *excluding* the drawing seat's own
+//!   just-discarded cards) into the deck with `self.rng` and continue.
+//!   Only if that still cannot cover the request (pathological) may the
+//!   seat's own discards be included. No dedicated event — determinism
+//!   comes from the seeded RNG.
+//! - After the draw phase, the street's betting round opens as usual. In
+//!   run-out situations (fewer than two seats can bet), remaining draw
+//!   phases STILL run — all-in players draw to their final hands — while
+//!   the betting rounds are skipped.
+//! - Draw-game showdown uses `HoleUsage::AllOwn` on the final hand.
+//!
 //! ## Invariants (must be property-tested)
 //! - Chip conservation at `HandEnd`.
 //! - `apply(a)` succeeds iff `a` conforms to the last `legal_actions()`.
 //! - Every hand terminates (fold-out, or showdown after the last street).
 //! - Stacks never go negative; commitments never exceed starting stacks.
+//! - No card is ever simultaneously in two live hands / the board (reshuffle
+//!   only recycles dead discards).
 
 use super::action::{Action, BetBounds, Chips, LegalActions, Seat};
 use super::event::{Event, PostKind, PotSide};
@@ -93,6 +154,7 @@ use super::pot::{PotAward, ShowdownEntry, award_pots, build_pots};
 use super::spec::{BettingKind, DealSpec, FirstToAct, ForcedBets, GameSpec, PotSplit};
 use crate::card::{Card, Deck};
 use crate::eval::{HandValue, best_with_usage};
+use crate::rng::Rng64;
 
 /// Errors constructing a hand.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -138,6 +200,11 @@ pub struct HandState {
     button: Seat,
     seats: usize,
     deck: Deck,
+    /// Used only when a draw street exhausts the deck and the discard pile
+    /// must be reshuffled; deterministic because callers derive it from the
+    /// match seed.
+    #[allow(dead_code)] // consumed once draw streets land (M3 engine work)
+    rng: Rng64,
     hole: Vec<Vec<Card>>,
     board: Vec<Card>,
     /// Starting stack − contributions so far (refunds add back).
@@ -169,14 +236,16 @@ pub struct HandState {
 impl HandState {
     /// Start a hand. `button` indexes into `stacks` (len = seat count).
     /// Deals from `deck`; the deck must hold enough cards for a full
-    /// run-out. Returns the state plus all events emitted so far
-    /// (hand start, posts, street 0 deal).
+    /// run-out (draw games may exhaust it mid-hand, in which case the
+    /// discards are reshuffled with `rng`). Returns the state plus all
+    /// events emitted so far (hand start, posts, street 0 deal).
     pub fn new(
         spec: &GameSpec,
         stacks: &[Chips],
         button: Seat,
         hand_no: u64,
         deck: Deck,
+        rng: Rng64,
     ) -> Result<(HandState, Vec<Event>), HandError> {
         let seats = stacks.len();
         if seats < *spec.seats.start() as usize || seats > *spec.seats.end() as usize {
@@ -198,6 +267,7 @@ impl HandState {
             button,
             seats,
             deck,
+            rng,
             hole: vec![Vec::new(); seats],
             board: Vec::new(),
             stacks: stacks.to_vec(),
@@ -822,6 +892,10 @@ mod tests {
     use super::*;
     use crate::game::spec::Stakes;
 
+    fn test_rng() -> Rng64 {
+        Rng64::from_seed_stream(0, 0)
+    }
+
     fn nl(seats: u8) -> GameSpec {
         let mut spec = GameSpec::holdem_nl(Stakes {
             small_blind: 1,
@@ -832,7 +906,7 @@ mod tests {
     }
 
     fn start(spec: &GameSpec, stacks: &[Chips]) -> HandState {
-        HandState::new(spec, stacks, 0, 1, Deck::standard())
+        HandState::new(spec, stacks, 0, 1, Deck::standard(), test_rng())
             .unwrap()
             .0
     }
@@ -843,23 +917,24 @@ mod tests {
         spec.forced_bets = ForcedBets::BringIn {
             ante: 1,
             bring_in: 2,
+            low: false,
         };
         assert_eq!(
-            HandState::new(&spec, &[100, 100], 0, 1, Deck::standard()).err(),
+            HandState::new(&spec, &[100, 100], 0, 1, Deck::standard(), test_rng()).err(),
             Some(HandError::Unsupported("bring-in forced bets"))
         );
 
         let mut spec = nl(9);
         spec.streets[0].deal = DealSpec::HoleUp(2);
         assert!(matches!(
-            HandState::new(&spec, &[100, 100], 0, 1, Deck::standard()).err(),
+            HandState::new(&spec, &[100, 100], 0, 1, Deck::standard(), test_rng()).err(),
             Some(HandError::Unsupported(_))
         ));
 
         let mut spec = nl(9);
         spec.streets[1].betting.as_mut().unwrap().first_to_act = FirstToAct::ByUpcards;
         assert!(matches!(
-            HandState::new(&spec, &[100, 100], 0, 1, Deck::standard()).err(),
+            HandState::new(&spec, &[100, 100], 0, 1, Deck::standard(), test_rng()).err(),
             Some(HandError::Unsupported(_))
         ));
     }
@@ -868,16 +943,16 @@ mod tests {
     fn rejects_bad_setup() {
         let spec = nl(9);
         assert_eq!(
-            HandState::new(&spec, &[100], 0, 1, Deck::standard()).err(),
+            HandState::new(&spec, &[100], 0, 1, Deck::standard(), test_rng()).err(),
             Some(HandError::BadSeatCount(1))
         );
         assert_eq!(
-            HandState::new(&spec, &[100, 0], 0, 1, Deck::standard()).err(),
+            HandState::new(&spec, &[100, 0], 0, 1, Deck::standard(), test_rng()).err(),
             Some(HandError::BadStacks)
         );
         let short = Deck::from_deal_order(&crate::card::parse_cards("As Ks Qs Js").unwrap());
         assert_eq!(
-            HandState::new(&spec, &[100, 100], 0, 1, short).err(),
+            HandState::new(&spec, &[100, 100], 0, 1, short, test_rng()).err(),
             Some(HandError::DeckExhausted)
         );
     }

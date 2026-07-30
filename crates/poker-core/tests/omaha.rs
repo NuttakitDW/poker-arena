@@ -15,6 +15,11 @@ use poker_core::game::action::{Action, BetBounds, Chips, Seat};
 use poker_core::game::event::{Event, PotSide};
 use poker_core::game::spec::{GameSpec, Stakes};
 use poker_core::game::state::{ActionError, HandState};
+use poker_core::rng::Rng64;
+
+fn test_rng() -> Rng64 {
+    Rng64::from_seed_stream(0, 0)
+}
 
 const STAKES: Stakes = Stakes {
     small_blind: 50,
@@ -113,7 +118,8 @@ fn exactly_two_blocks_board_flushes() {
     // flush wins outright despite seat 0 holding the higher spade.
     let holes = ["As Ac Kd Kc", "4s 6s 2d 3c"];
     let deck = deck_for(0, &holes, "2s 5s 8s Js 3d");
-    let (mut hand, _) = HandState::new(&omaha_pl_spec(), &[10_000, 10_000], 0, 1, deck).unwrap();
+    let (mut hand, _) =
+        HandState::new(&omaha_pl_spec(), &[10_000, 10_000], 0, 1, deck, test_rng()).unwrap();
 
     play(&mut hand, &[Action::Call, Action::Check]); // preflop
     play(&mut hand, &[Action::Check, Action::Check]); // flop
@@ -151,7 +157,8 @@ fn exactly_two_uses_best_two_of_four() {
     // two cards" or "all four") to find seat 0's trips.
     let holes = ["9h 9d 2c 3d", "Kc Qc 2h 3h"];
     let deck = deck_for(0, &holes, "9c Kd Qh 4s 5c");
-    let (mut hand, _) = HandState::new(&omaha_pl_spec(), &[10_000, 10_000], 0, 1, deck).unwrap();
+    let (mut hand, _) =
+        HandState::new(&omaha_pl_spec(), &[10_000, 10_000], 0, 1, deck, test_rng()).unwrap();
 
     play(&mut hand, &[Action::Call, Action::Check]);
     play(&mut hand, &[Action::Check, Action::Check]);
@@ -193,7 +200,8 @@ fn board_never_plays_alone() {
     // outright — a single winner, not a chop with the board.
     let holes = ["2c 2d 3c 3d", "Ts Ks 4h 5d"];
     let deck = deck_for(0, &holes, "Th Jd Qc Kh As");
-    let (mut hand, _) = HandState::new(&omaha_pl_spec(), &[10_000, 10_000], 0, 1, deck).unwrap();
+    let (mut hand, _) =
+        HandState::new(&omaha_pl_spec(), &[10_000, 10_000], 0, 1, deck, test_rng()).unwrap();
 
     play(&mut hand, &[Action::Call, Action::Check]);
     play(&mut hand, &[Action::Check, Action::Check]);
@@ -239,8 +247,15 @@ fn omaha8_split_and_quarter() {
         "Th Tc 9h 9s", // seat 2: no qualifying low, worse hi
     ];
     let deck = deck_for(0, &holes, "3c 4d 8h Kc Qd");
-    let (mut hand, _) =
-        HandState::new(&omaha8_fl_spec(), &[10_000, 10_000, 10_000], 0, 1, deck).unwrap();
+    let (mut hand, _) = HandState::new(
+        &omaha8_fl_spec(),
+        &[10_000, 10_000, 10_000],
+        0,
+        1,
+        deck,
+        test_rng(),
+    )
+    .unwrap();
 
     play(&mut hand, &[Action::Call, Action::Call, Action::Check]); // preflop
     play(&mut hand, &[Action::Check, Action::Check, Action::Check]); // flop
@@ -289,7 +304,8 @@ fn omaha8_no_qualifier_scoops() {
     // regardless of hole cards. The pot must go whole to the best hi hand.
     let holes = ["Ah 2d 9c 9s", "3h 4c Td Ts"];
     let deck = deck_for(0, &holes, "5c 7d Kc Qh Jd");
-    let (mut hand, _) = HandState::new(&omaha8_pl_spec(), &[10_000, 10_000], 0, 1, deck).unwrap();
+    let (mut hand, _) =
+        HandState::new(&omaha8_pl_spec(), &[10_000, 10_000], 0, 1, deck, test_rng()).unwrap();
 
     play(&mut hand, &[Action::Call, Action::Check]);
     play(&mut hand, &[Action::Check, Action::Check]);
@@ -324,6 +340,7 @@ fn pot_limit_bounds_with_four_hole_cards() {
         0,
         1,
         Deck::standard(),
+        test_rng(),
     )
     .unwrap();
 
@@ -390,7 +407,15 @@ fn deck_sizing() {
     // (unscripted) deck — `HandState::new` would reject an undersized deck
     // with `HandError::DeckExhausted` before any of this runs.
     let stacks = vec![10_000; 9];
-    let (mut hand, _) = HandState::new(&omaha_pl_spec(), &stacks, 0, 1, Deck::standard()).unwrap();
+    let (mut hand, _) = HandState::new(
+        &omaha_pl_spec(),
+        &stacks,
+        0,
+        1,
+        Deck::standard(),
+        test_rng(),
+    )
+    .unwrap();
 
     while hand.to_act().is_some() {
         let la = hand.legal_actions().unwrap();
