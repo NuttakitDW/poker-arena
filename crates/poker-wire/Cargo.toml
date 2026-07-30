@@ -2,6 +2,7 @@
 name = "poker-wire"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 description = "Wire protocol message definitions and JSON-lines framing for poker-arena."
 
 [dependencies]
