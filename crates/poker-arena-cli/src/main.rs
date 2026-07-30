@@ -91,9 +91,10 @@ struct RunArgs {
     hands: u64,
 
     /// RNG seed for deck shuffling; the whole match is reproducible from
-    /// this seed given deterministic bots.
-    #[arg(long, default_value_t = 1)]
-    seed: u64,
+    /// this seed given deterministic bots. Defaults to a fresh random seed
+    /// (always printed with the results) so repeated runs explore new deals.
+    #[arg(long)]
+    seed: Option<u64>,
 
     /// How decks are dealt across seat rotations.
     #[arg(long, value_enum, default_value = "duplicate")]
@@ -412,10 +413,16 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
     };
     let mut bots = build_bots(specs, &hello, timeout)?;
 
+    let seed = args.seed.unwrap_or_else(entropy_seed);
+    if args.seed.is_none() {
+        // Surface the generated seed up front too, so long or aborted runs
+        // are still reproducible.
+        eprintln!("seed: {seed} (pass --seed {seed} to reproduce this match)");
+    }
     let config = MatchConfig {
         spec,
         decks: args.hands,
-        seed: args.seed,
+        seed,
         dealing: args.dealing.into(),
         starting_stack,
         fault_policy: args.fault_policy.into(),
@@ -446,6 +453,7 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
 
     let result = run_match(&config, &mut bots, sink, on_progress).map_err(|e| e.to_string())?;
 
+    println!("seed: {seed}");
     print_report(&result);
 
     if let Some(offender) = result.forfeited_by {
@@ -453,6 +461,22 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
         return Ok(ExitCode::from(2));
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// A fresh seed for runs that didn't pin one: system time and PID stirred
+/// through splitmix64. Match seeding, not cryptography.
+fn entropy_seed() -> u64 {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let mut state = nanos ^ ((std::process::id() as u64) << 32);
+    // splitmix64 finalizer, same constants as poker-core's RNG seeding.
+    state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut z = state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
 }
 
 /// Prints the behavioral profile table: VPIP, PFR, AF, WTSD, WSD, and fold
