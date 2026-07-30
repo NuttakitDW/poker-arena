@@ -37,6 +37,10 @@ pub struct ActionRequest<'a> {
     pub street_label: &'static str,
     pub hole: &'a [Card],
     pub board: &'a [Card],
+    /// Face-up cards per seat (stud; M3). Public information — every seat's
+    /// upcards, not just the acting seat's. Empty vecs for games without
+    /// upcards.
+    pub upcards: &'a [Vec<Card>],
     /// Remaining stacks by seat.
     pub stacks: &'a [Chips],
     /// Current-street commitments by seat.

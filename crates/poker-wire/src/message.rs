@@ -58,6 +58,10 @@ pub enum ArenaMsg {
         street_label: String,
         hole: Vec<Card>,
         board: Vec<Card>,
+        /// Face-up cards per seat (stud; M3); empty vecs for games without
+        /// upcards. Public information — every seat's upcards, not just this
+        /// bot's.
+        upcards: Vec<Vec<Card>>,
         stacks: Vec<u64>,
         street_commits: Vec<u64>,
         pot_total: u64,
@@ -459,6 +463,7 @@ mod tests {
                 street_label: "preflop".to_string(),
                 hole: vec![c(Rank::Ace, Suit::Spades), c(Rank::King, Suit::Diamonds)],
                 board: Vec::new(),
+                upcards: vec![vec![c(Rank::Ten, Suit::Clubs)], Vec::new()],
                 stacks: vec![9_900, 9_800],
                 street_commits: vec![100, 200],
                 pot_total: 300,

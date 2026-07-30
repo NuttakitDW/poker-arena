@@ -124,6 +124,7 @@ conforming to `legal` (see [Action semantics](#action-semantics)).
 | `street_label`   | string          | Human label, e.g. `"preflop"`, `"flop"`.         |
 | `hole`           | `[Card]`        | This bot's own hole cards.                       |
 | `board`          | `[Card]`        | Community cards dealt so far.                    |
+| `upcards`        | `[[Card]]`      | Face-up cards by seat (stud; M3), `upcards[seat]`. Public information — every seat's, not just this bot's. Empty lists (and an all-empty array for non-stud games) when nobody has upcards yet. |
 | `stacks`         | `[u64]`         | Remaining stack by seat.                         |
 | `street_commits` | `[u64]`         | Each seat's total commitment *this street*.      |
 | `pot_total`      | u64             | Total chips in the pot (all streets).            |
@@ -134,7 +135,7 @@ conforming to `legal` (see [Action semantics](#action-semantics)).
 `Card` is a 2-character string, rank then suit: `"As"`, `"Td"`, `"2c"`.
 
 ```json
-{"t":"act","hand_no":1,"seat":0,"street":0,"street_label":"preflop","hole":["As","Kd"],"board":[],"stacks":[9900,9800],"street_commits":[100,200],"pot_total":300,"folded":[false,false],"legal":{"fold":true,"check":false,"call":100,"raise":{"min_to":300,"max_to":10000}},"deadline_ms":5000}
+{"t":"act","hand_no":1,"seat":0,"street":0,"street_label":"preflop","hole":["As","Kd"],"board":[],"upcards":[[],[]],"stacks":[9900,9800],"street_commits":[100,200],"pot_total":300,"folded":[false,false],"legal":{"fold":true,"check":false,"call":100,"raise":{"min_to":300,"max_to":10000}},"deadline_ms":5000}
 ```
 
 ### `hand-end`
@@ -255,11 +256,47 @@ arena, so `showdown-show` is never redacted.
     wagered yet this street.
   - `raise: { min_to, max_to } | null` — present only when facing a wager.
   - `bring_in: u64 | null`, `draw: { max_discards: u8 } | null` — stud/draw
-    variants (M3).
+    variants (M3; see below).
   - **`min_to == max_to` means there is exactly one legal total** for that
     action — typically a short all-in below the normal minimum raise, or a
     fixed-limit bet size. Send that exact value; there is no range to pick
     from.
+
+### Draw decisions (M3)
+
+- On a draw street, every non-folded seat (all-in seats included) is asked
+  exactly once, in seat order starting left of the button, *before* that
+  street's betting round. `legal` offers nothing but
+  `draw: { max_discards: u8 }` — no `fold`/`check`/`call`/`bet`/`raise`.
+- Reply with `discard`: `cards` must be distinct cards you actually hold,
+  and at most `max_discards`. An empty list is standing pat.
+- Replacements are dealt immediately and observed via the `draw-result`
+  event (`discarded` count public, `drawn` cards private — redacted like
+  `deal-hole` for other seats). The next street's betting round then opens
+  as usual.
+
+```json
+{"t":"act", … ,"legal":{"fold":false,"check":false,"draw":{"max_discards":3}}, … }
+{"t":"action","action":{"kind":"discard","cards":["2c","7h"]}}
+```
+
+### Stud bring-in decisions (M3)
+
+- The first betting street of a stud game (`ForcedBets::BringIn` variants —
+  `stud-fl`, `stud8-fl`, `razz-fl`) opens with the worst door card owing a
+  forced bring-in instead of an ordinary first action. `legal` offers only
+  `bring_in: u64` (the forced amount, capped at your stack) and
+  `bet: { min_to, max_to }` with `min_to == max_to` (completing straight to
+  the small bet) — no `fold`/`check`/`call`/`raise`.
+- Reply with either `{"kind":"bring-in"}` (post the forced amount) or
+  `{"kind":"bet","to":<the offered min_to/max_to>}` (complete directly to
+  the small bet). Both are posted as a normal `acted` event; later seats can
+  still raise the completed bet through the usual `raise` family.
+
+```json
+{"t":"act", … ,"legal":{"fold":false,"check":false,"bring_in":10,"bet":{"min_to":20,"max_to":20}}, … }
+{"t":"action","action":{"kind":"bring-in"}}
+```
 
 ## Deadline semantics
 
@@ -305,11 +342,11 @@ the whole hand-end-to-hand-end cycle fits in ~20 lines:
 {"t":"event","hand_no":1,"ev":{"event":"deal-hole","seat":1,"cards":[],"count":2}}
 {"t":"event","hand_no":1,"ev":{"event":"street-start","street":0,"label":"preflop"}}
 {"t":"event","hand_no":1,"ev":{"event":"acted","seat":1,"action":{"kind":"call"},"street_commit":100,"all_in":false}}
-{"t":"act","hand_no":1,"seat":0,"street":0,"street_label":"preflop","hole":["As","Kd"],"board":[],"stacks":[9900,9900],"street_commits":[100,100],"pot_total":200,"folded":[false,false],"legal":{"fold":false,"check":true,"raise":{"min_to":200,"max_to":10000}},"deadline_ms":5000}
+{"t":"act","hand_no":1,"seat":0,"street":0,"street_label":"preflop","hole":["As","Kd"],"board":[],"upcards":[[],[]],"stacks":[9900,9900],"street_commits":[100,100],"pot_total":200,"folded":[false,false],"legal":{"fold":false,"check":true,"raise":{"min_to":200,"max_to":10000}},"deadline_ms":5000}
 {"t":"action","action":{"kind":"check"}}
 {"t":"event","hand_no":1,"ev":{"event":"street-start","street":1,"label":"flop"}}
 {"t":"event","hand_no":1,"ev":{"event":"deal-community","street":1,"cards":["2c","7h","9s"]}}
-{"t":"act","hand_no":1,"seat":0,"street":1,"street_label":"flop","hole":["As","Kd"],"board":["2c","7h","9s"],"stacks":[9900,9900],"street_commits":[0,0],"pot_total":200,"folded":[false,false],"legal":{"fold":false,"check":true,"bet":{"min_to":100,"max_to":9900}},"deadline_ms":5000}
+{"t":"act","hand_no":1,"seat":0,"street":1,"street_label":"flop","hole":["As","Kd"],"board":["2c","7h","9s"],"upcards":[[],[]],"stacks":[9900,9900],"street_commits":[0,0],"pot_total":200,"folded":[false,false],"legal":{"fold":false,"check":true,"bet":{"min_to":100,"max_to":9900}},"deadline_ms":5000}
 {"t":"action","action":{"kind":"bet","to":150}}
 {"t":"event","hand_no":1,"ev":{"event":"acted","seat":0,"action":{"kind":"bet","to":150},"street_commit":150,"all_in":false}}
 {"t":"event","hand_no":1,"ev":{"event":"acted","seat":1,"action":{"kind":"fold"},"street_commit":0,"all_in":false}}

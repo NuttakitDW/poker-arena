@@ -34,8 +34,13 @@ cargo run --release -p poker-arena-cli -- games
 ```
 
 Currently registered: `holdem-nl`, `holdem-fl`, `omaha-pl`, `omaha8-pl`,
-`omaha8-fl` (stud and draw families arrive in M3 — the engine's variant
-model already covers them).
+`omaha8-fl`, `stud-fl`, `stud8-fl`, `razz-fl`, `27td-fl`, `a5td-fl`,
+`badugi-fl`, `5cd-nl` — twelve variants spanning community-card, stud
+(bring-in, upcards), and draw (discard/replace) families, all expressed as
+data over one rules engine.
+
+Match reports include a behavioral profile per bot (VPIP, PFR, aggression
+factor, went-to/won-at-showdown, fold rate) alongside the winnings table.
 
 ## Out-of-process bots (any language)
 
@@ -101,8 +106,9 @@ TCP or stdio) arrive with the wire protocol in M2.
 - **M2 — done.** Wire protocol v1 (TCP + subprocess stdio, any language),
   per-action deadlines and fault handling, Omaha / Omaha hi-lo with
   pot-limit betting.
-- **M3 — next.** Stud family (stud, stud8, razz), draw family (triple draw,
-  badugi), behavioral stats (VPIP, aggression, showdown%).
+- **M3 — done.** Stud family (stud, stud8, razz — bring-in, upcards,
+  by-upcard action order), draw family (2-7/A-5 triple draw, badugi,
+  five-card draw — with discard-pile reshuffling), behavioral statistics.
 
 All engine rules are covered by scripted-hand fixtures and seeded property
 tests (chip conservation, legality soundness, determinism).

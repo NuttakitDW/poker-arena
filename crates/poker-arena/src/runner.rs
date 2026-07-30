@@ -294,6 +294,7 @@ fn play_hand(
             street_label,
             hole: state.hole_cards(seat),
             board: state.board(),
+            upcards: state.upcards(),
             stacks: state.stacks(),
             street_commits: state.street_commits(),
             pot_total: state.pot_total(),
@@ -313,13 +314,22 @@ fn play_hand(
                 faults[bot] += 1;
                 match config.fault_policy {
                     FaultPolicy::CheckFold => {
-                        let substitute = if legal.check {
+                        // The minimal legal action for the decision family in
+                        // play: draw phases only accept a discard (stand pat),
+                        // a bring-in decision only accepts bring-in/complete,
+                        // and betting decisions offer exactly one of
+                        // check/fold.
+                        let substitute = if legal.draw.is_some() {
+                            Action::Discard { cards: Vec::new() }
+                        } else if legal.bring_in.is_some() {
+                            Action::BringIn
+                        } else if legal.check {
                             Action::Check
                         } else {
                             Action::Fold
                         };
                         state.apply(substitute).expect(
-                            "check xor fold is always legal (owed is either 0 or >0): engine invariant",
+                            "each decision family has a minimal legal action: engine invariant",
                         )
                     }
                     FaultPolicy::Forfeit => {
@@ -660,5 +670,42 @@ mod tests {
         // re-export break.
         let la = LegalActions::default();
         assert!(!la.check);
+    }
+
+    /// A faulting bot at a bring-in or draw decision must be substituted with
+    /// that family's minimal legal action (bring-in / stand pat), never
+    /// panic the arena: check and fold are both illegal at those decisions.
+    #[test]
+    fn check_fold_policy_survives_bring_in_and_draw_decisions() {
+        for id in ["stud-fl", "27td-fl"] {
+            let spec = GameSpec::by_id(
+                id,
+                Stakes {
+                    small_blind: 50,
+                    big_blind: 100,
+                },
+            )
+            .unwrap();
+            let config = MatchConfig {
+                spec,
+                decks: 10,
+                seed: 3,
+                dealing: DealingMode::Seeded,
+                starting_stack: 10_000,
+                fault_policy: FaultPolicy::CheckFold,
+                timeout: None,
+            };
+            let mut bots: Vec<Box<dyn Bot>> = vec![
+                Box::new(AlwaysIllegal {
+                    name: "illegal".into(),
+                }),
+                Box::new(Caller::new("caller")),
+            ];
+            let result = run_match(&config, &mut bots, None, None).unwrap();
+            assert_eq!(result.hands_played, 10, "{id}");
+            assert!(result.outcomes[0].faults > 0, "{id}");
+            let total: i64 = result.outcomes.iter().map(|o| o.total_net_chips).sum();
+            assert_eq!(total, 0, "{id}");
+        }
     }
 }

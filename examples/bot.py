@@ -8,7 +8,9 @@ Reads arena messages from stdin, writes bot messages to stdout — run it with:
 
 Protocol reference: WIRE_PROTOCOL.md. The strategy here is simple but
 legal: check when free, call small bets, raise the minimum with strong-ish
-preflop holdings. Replace `decide()` with your own brain.
+preflop holdings, always post the bring-in at a stud decision, and discard
+high cards on a draw street — legal moves across every registry game, not a
+strong player. Replace `decide()` with your own brain.
 """
 
 import json
@@ -24,6 +26,16 @@ def decide(act):
     """Return an action object conforming to act["legal"]."""
     legal = act["legal"]
     hole = act.get("hole", [])
+
+    # Draw streets (M3): discard high cards, up to the offered max.
+    draw = legal.get("draw")
+    if draw is not None:
+        high = [c for c in hole if c[0] in "9TJQKA"]
+        return {"kind": "discard", "cards": high[: draw["max_discards"]]}
+
+    # Stud (M3): always post the forced bring-in rather than completing.
+    if legal.get("bring_in") is not None:
+        return {"kind": "bring-in"}
 
     # A crude preflop heuristic: raise the minimum holding a pair or an ace.
     ranks = [c[0] for c in hole]

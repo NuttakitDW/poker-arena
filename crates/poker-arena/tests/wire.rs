@@ -43,6 +43,7 @@ fn hello(timeout_ms: Option<u64>) -> ArenaMsg {
 struct Scenario {
     hole: Vec<Card>,
     board: Vec<Card>,
+    upcards: Vec<Vec<Card>>,
     stacks: Vec<Chips>,
     street_commits: Vec<Chips>,
     folded: Vec<bool>,
@@ -54,6 +55,7 @@ impl Scenario {
         Self {
             hole: Vec::new(),
             board: Vec::new(),
+            upcards: vec![Vec::new(), Vec::new()],
             stacks: vec![10_000, 10_000],
             street_commits: vec![100, 200],
             folded: vec![false, false],
@@ -81,6 +83,7 @@ impl Scenario {
             street_label: "preflop",
             hole: &self.hole,
             board: &self.board,
+            upcards: &self.upcards,
             stacks: &self.stacks,
             street_commits: &self.street_commits,
             pot_total: 300,
