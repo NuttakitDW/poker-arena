@@ -16,6 +16,10 @@ use poker_core::rng::Rng64;
 /// Seed salt separating reshuffle RNG streams from deck-shuffle streams.
 const RESHUFFLE_SALT: u64 = 0x5245_5348_5546_4C31;
 
+/// Seed salt separating per-deck seating-arrangement streams from both of
+/// the above.
+const SEATING_SALT: u64 = 0x5345_4154_494E_4731;
+
 use crate::behavior::BehaviorStats;
 use crate::bot::{ActionRequest, Bot, HandEnd, HandStart};
 use crate::config::{DealingMode, FaultPolicy, MatchConfig};
@@ -148,6 +152,7 @@ pub fn run_match(
 
     'decks: for deck_no in 0..config.decks {
         let deck = Deck::shuffled(&mut Rng64::from_seed_stream(config.seed, deck_no));
+        let seating = Seating::for_deck(config.seed, deck_no, n);
         let rotations: Vec<usize> = match config.dealing {
             DealingMode::Seeded => vec![(deck_no % n as u64) as usize],
             DealingMode::Duplicate => (0..n).collect(),
@@ -166,6 +171,7 @@ pub fn run_match(
                 &mut faults,
                 hand_no,
                 deck.clone(),
+                &seating,
                 r,
             )?;
 
@@ -179,7 +185,11 @@ pub fn run_match(
             for b in 0..n {
                 totals[b] += outcome.nets[b];
                 deck_net_sum[b] += outcome.nets[b];
-                behavior[b].record_hand(&outcome.events, seat_of_bot(n, r, b), outcome.nets[b]);
+                behavior[b].record_hand(
+                    &outcome.events,
+                    seating.seat_of_bot(r, b),
+                    outcome.nets[b],
+                );
             }
             if config.dealing == DealingMode::Seeded {
                 for (bot_stats, &net) in stats.iter_mut().zip(&outcome.nets) {
@@ -235,18 +245,48 @@ struct HandOutcome {
     events: Vec<Event>,
 }
 
-/// Seat occupied by `bot` under rotation `r` (`n` seats total).
-fn seat_of_bot(n: usize, r: usize, bot: usize) -> usize {
-    (bot + r) % n
+/// One deck's bot↔seat mapping: a random base arrangement (drawn per deck)
+/// composed with a cyclic rotation.
+///
+/// Cyclic rotation alone gives every bot every *position* on the same
+/// cards, but preserves the circular order of bots — who acts after whom
+/// never changes, so neighbor effects (e.g. sitting behind the maniac)
+/// would never average out in multiway play. Randomizing the base
+/// arrangement per deck keeps positional fairness exact within a deck
+/// while neighbor arrangements average out across decks. Heads-up this
+/// reduces to plain mirror pairs.
+struct Seating {
+    /// `base[bot]` = the bot's seat under rotation 0.
+    base: Vec<usize>,
+    /// `inverse[seat]` = the bot at that seat under rotation 0.
+    inverse: Vec<usize>,
 }
 
-/// Bot occupying `seat` under rotation `r` — the inverse of `seat_of_bot`.
-fn bot_of_seat(n: usize, r: usize, seat: usize) -> usize {
-    (seat + n - r % n) % n
+impl Seating {
+    fn for_deck(seed: u64, deck_no: u64, n: usize) -> Seating {
+        let mut base: Vec<usize> = (0..n).collect();
+        Rng64::from_seed_stream(seed ^ SEATING_SALT, deck_no).shuffle(&mut base);
+        let mut inverse = vec![0; n];
+        for (bot, &seat) in base.iter().enumerate() {
+            inverse[seat] = bot;
+        }
+        Seating { base, inverse }
+    }
+
+    fn seat_of_bot(&self, r: usize, bot: usize) -> usize {
+        let n = self.base.len();
+        (self.base[bot] + r) % n
+    }
+
+    fn bot_of_seat(&self, r: usize, seat: usize) -> usize {
+        let n = self.base.len();
+        self.inverse[(seat + n - r % n) % n]
+    }
 }
 
 /// Drive one hand from `HandState::new` to settlement (or forfeit),
 /// delivering redacted events to bots and the unredacted stream to `sink`.
+#[allow(clippy::too_many_arguments)]
 fn play_hand(
     config: &MatchConfig,
     bots: &mut [Box<dyn Bot>],
@@ -254,6 +294,7 @@ fn play_hand(
     faults: &mut [u64],
     hand_no: u64,
     deck: Deck,
+    seating: &Seating,
     r: usize,
 ) -> Result<HandOutcome, MatchError> {
     let n = bots.len();
@@ -273,18 +314,18 @@ fn play_hand(
     for (b, bot) in bots.iter_mut().enumerate() {
         bot.hand_start(&HandStart {
             hand_no,
-            seat: seat_of_bot(n, r, b),
+            seat: seating.seat_of_bot(r, b),
             button: 0,
             seat_count: n,
             stacks: stacks.clone(),
         });
     }
-    deliver_events(&ev0, n, r, bots, sink);
+    deliver_events(&ev0, seating, r, bots, sink);
     hand_events.extend(ev0);
 
     let mut forfeited_by = None;
     while let Some(seat) = state.to_act() {
-        let bot = bot_of_seat(n, r, seat);
+        let bot = seating.bot_of_seat(r, seat);
         let legal = state
             .legal_actions()
             .expect("to_act() implies legal_actions()");
@@ -342,7 +383,7 @@ fn play_hand(
                 }
             }
         };
-        deliver_events(&events, n, r, bots, sink);
+        deliver_events(&events, seating, r, bots, sink);
         hand_events.extend(events);
     }
 
@@ -359,7 +400,7 @@ fn play_hand(
         .expect("the loop above exits only when to_act() is None, i.e. is_over()");
     let mut nets = vec![0i64; n];
     for seat in 0..n {
-        nets[bot_of_seat(n, r, seat)] = settlement.nets[seat];
+        nets[seating.bot_of_seat(r, seat)] = settlement.nets[seat];
     }
 
     for bot in bots.iter_mut() {
@@ -382,14 +423,14 @@ fn play_hand(
 /// Forward `events` to every bot (seat-redacted) and to `sink` (unredacted).
 fn deliver_events(
     events: &[Event],
-    n: usize,
+    seating: &Seating,
     r: usize,
     bots: &mut [Box<dyn Bot>],
     sink: &mut Option<&mut dyn EventSink>,
 ) {
     for e in events {
         for (b, bot) in bots.iter_mut().enumerate() {
-            bot.event(&e.redacted_for(Some(seat_of_bot(n, r, b))));
+            bot.event(&e.redacted_for(Some(seating.seat_of_bot(r, b))));
         }
         if let Some(s) = sink {
             s.event(e);
@@ -585,21 +626,32 @@ mod tests {
     }
 
     #[test]
-    fn seeded_rotation_actually_rotates_seats() {
+    fn seeded_seating_covers_every_seat_and_is_not_purely_cyclic() {
         let seats_seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let config = nl_config(4, 0, DealingMode::Seeded, FaultPolicy::CheckFold);
+        let decks = 24;
+        let config = nl_config(decks, 0, DealingMode::Seeded, FaultPolicy::CheckFold);
         let mut bots: Vec<Box<dyn Bot>> = vec![
             Box::new(SeatProbe {
                 name: "probe".into(),
                 seats_seen: seats_seen.clone(),
             }),
             Box::new(Folder::new("folder")),
+            Box::new(Caller::new("caller")),
+            Box::new(Folder::new("folder2")),
         ];
         let result = run_match(&config, &mut bots, None, None).unwrap();
-        assert_eq!(result.hands_played, 4);
+        assert_eq!(result.hands_played, decks);
 
         let seen = seats_seen.lock().unwrap().clone();
-        assert_eq!(seen, vec![0, 1, 0, 1]);
+        // Positional fairness: the probe plays every seat within the match.
+        for seat in 0..4 {
+            assert!(seen.contains(&seat), "probe never sat at seat {seat}");
+        }
+        // Arrangement randomization: a pure cyclic scheme would produce
+        // (seen[0] + d) % 4 forever; the per-deck random arrangement must
+        // break that pattern (deterministic for this seed).
+        let cyclic: Vec<usize> = (0..seen.len()).map(|d| (seen[0] + d) % 4).collect();
+        assert_ne!(seen, cyclic, "seating degenerated to a pure cycle");
     }
 
     // ---- (f) behavior stats ----

@@ -7,14 +7,16 @@ use poker_core::game::{Chips, GameSpec};
 /// How decks are dealt across the match.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum DealingMode {
-    /// One hand per deck; bots rotate seats cyclically hand to hand; each
+    /// One hand per deck; each deck draws a fresh seeded-random seating
+    /// arrangement, so both position and neighbor order average out. Each
     /// hand's net is one observation per bot.
     Seeded,
-    /// Duplicate dealing: each deck is replayed once per cyclic seat
-    /// rotation (N rotations for N seats; heads-up = mirror pair), so every
-    /// bot plays every seat with the same cards. A bot's *mean net per hand
-    /// across the rotation set* is one observation — this is the variance
-    /// killer.
+    /// Duplicate dealing: each deck draws a seeded-random base arrangement
+    /// and is replayed once per cyclic rotation of it (N rotations for N
+    /// seats; heads-up = mirror pair), so every bot plays every seat with
+    /// the same cards while neighbor arrangements vary deck to deck. A
+    /// bot's *mean net per hand across the rotation set* is one
+    /// observation — this is the variance killer.
     Duplicate,
 }
 
