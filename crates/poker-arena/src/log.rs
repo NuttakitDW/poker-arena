@@ -88,7 +88,7 @@ struct FullLogSummary {
 struct SelectiveLogSummary {
     hands_seen: u64,
     hands_kept: u64,
-    sample_every_decks: Option<u64>,
+    sample_first_hands: Option<u64>,
     top_pots: Option<usize>,
     fault_hands_kept: u64,
 }
@@ -167,10 +167,11 @@ impl<W: Write> EventSink for JsonLog<W> {
 
 /// Which hands [`SelectiveLog`] keeps.
 pub struct LogSelection {
-    /// Keep every Nth deck (ALL rotations of it — mirror pairs stay
-    /// together). `None` = off; `Some(0)` is invalid (validated by the
-    /// CLI, not here).
-    pub sample_every_decks: Option<u64>,
+    /// Keep the first N hands, extended to whole decks so a duplicate
+    /// rotation set (mirror pair) is never split: decks keep being sampled
+    /// until at least N hands are kept. `None` = off; `Some(0)` is invalid
+    /// (validated by the CLI, not here).
+    pub sample_first_hands: Option<u64>,
     /// Keep the K biggest-pot hands (global top K, single-pass min-heap).
     pub top_pots: Option<usize>,
     /// Keep the first K hands in which any bot faulted. Forfeit hands are
@@ -240,6 +241,11 @@ pub struct SelectiveLog<W: Write> {
     selection: LogSelection,
     hands_seen: u64,
     fault_hands_kept: u64,
+    /// Hands kept by the first-N sample so far.
+    sample_hands_kept: u64,
+    /// The deck currently being sampled: its remaining rotations are kept
+    /// even once the N-hand target is reached, so a set is never split.
+    sampling_deck: Option<u64>,
     current: Option<BufferedHand>,
     /// hand_no -> (buffered hand, reasons it was kept). A `BTreeMap` so
     /// `finish` can iterate in ascending hand_no order for free.
@@ -256,6 +262,8 @@ impl<W: Write> SelectiveLog<W> {
             selection,
             hands_seen: 0,
             fault_hands_kept: 0,
+            sample_hands_kept: 0,
+            sampling_deck: None,
             current: None,
             kept: BTreeMap::new(),
             top_heap: BinaryHeap::new(),
@@ -302,11 +310,15 @@ impl<W: Write> EventSink for SelectiveLog<W> {
         let hand_no = hand.hand_no;
 
         let mut reasons: BTreeSet<&'static str> = BTreeSet::new();
-        if let Some(n) = self.selection.sample_every_decks
-            && n != 0
-            && hand.deck_no % n == 0
-        {
-            reasons.insert("sample");
+        if let Some(n) = self.selection.sample_first_hands {
+            // First-N sampling, but never splitting a rotation set: a deck
+            // whose first hand was sampled keeps its remaining rotations.
+            let continue_deck = self.sampling_deck == Some(hand.deck_no);
+            if continue_deck || self.sample_hands_kept < n {
+                self.sampling_deck = Some(hand.deck_no);
+                self.sample_hands_kept += 1;
+                reasons.insert("sample");
+            }
         }
         if meta.faulted && self.fault_hands_kept < self.selection.fault_hands {
             reasons.insert("fault");
@@ -374,7 +386,7 @@ impl<W: Write> EventSink for SelectiveLog<W> {
             log_summary: SelectiveLogSummary {
                 hands_seen: self.hands_seen,
                 hands_kept: self.kept.len() as u64,
-                sample_every_decks: self.selection.sample_every_decks,
+                sample_first_hands: self.selection.sample_first_hands,
                 top_pots: self.selection.top_pots,
                 fault_hands_kept: self.fault_hands_kept,
             },
@@ -522,7 +534,7 @@ mod tests {
         let mut log = SelectiveLog::new(
             &mut buf,
             LogSelection {
-                sample_every_decks: Some(1),
+                sample_first_hands: Some(u64::MAX),
                 top_pots: None,
                 fault_hands: 0,
             },
@@ -538,7 +550,7 @@ mod tests {
             let mut log = SelectiveLog::new(
                 &mut buf,
                 LogSelection {
-                    sample_every_decks: None,
+                    sample_first_hands: None,
                     top_pots: Some(2),
                     fault_hands: 0,
                 },
@@ -572,7 +584,7 @@ mod tests {
             let mut log = SelectiveLog::new(
                 &mut buf,
                 LogSelection {
-                    sample_every_decks: None,
+                    sample_first_hands: None,
                     top_pots: None,
                     fault_hands: 2,
                 },
@@ -598,7 +610,7 @@ mod tests {
             let mut log = SelectiveLog::new(
                 &mut buf,
                 LogSelection {
-                    sample_every_decks: None,
+                    sample_first_hands: None,
                     top_pots: None,
                     fault_hands: 0,
                 },
@@ -619,7 +631,7 @@ mod tests {
             let mut log = SelectiveLog::new(
                 &mut buf,
                 LogSelection {
-                    sample_every_decks: Some(1),
+                    sample_first_hands: Some(u64::MAX),
                     top_pots: Some(1),
                     fault_hands: 0,
                 },

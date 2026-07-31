@@ -138,9 +138,9 @@ struct RunArgs {
     #[arg(long)]
     log: Option<PathBuf>,
 
-    /// Selective log: keep every Nth deck, all rotations of it together
-    /// (e.g. duplicate heads-up keeps both mirror hands of a kept deck) —
-    /// in seeded mode a deck is one hand. N >= 1. Requires --log.
+    /// Selective log: keep the first N hands, extended to whole decks so a
+    /// duplicate rotation set (mirror pair) is never split. N >= 1.
+    /// Requires --log.
     #[arg(long)]
     log_sample: Option<u64>,
 
@@ -535,7 +535,7 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
             let writer = BufWriter::new(file);
             if selective {
                 let selection = LogSelection {
-                    sample_every_decks: args.log_sample,
+                    sample_first_hands: args.log_sample,
                     top_pots: args.log_top_pots,
                     fault_hands: args.log_faults.unwrap_or(100),
                 };

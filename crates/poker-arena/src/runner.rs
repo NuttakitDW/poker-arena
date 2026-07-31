@@ -943,7 +943,7 @@ mod tests {
             let mut log = SelectiveLog::new(
                 &mut buf,
                 LogSelection {
-                    sample_every_decks: Some(5),
+                    sample_first_hands: Some(3),
                     top_pots: None,
                     fault_hands: 100,
                 },
@@ -955,12 +955,14 @@ mod tests {
 
         let parsed = parse_lines(buf);
         let headers: Vec<&serde_json::Value> = parsed.iter().filter(|v| is_header(v)).collect();
-        // Deck 0 and deck 5 kept, both rotations each -> hands 0,1,10,11.
+        // First 3 hands requested, extended to the whole second rotation
+        // set: hands 0,1 (deck 0) then 2,3 (deck 1 — kept in full so the
+        // mirror pair is never split).
         let hand_nos: Vec<u64> = headers
             .iter()
             .map(|h| h["hand"].as_u64().unwrap())
             .collect();
-        assert_eq!(hand_nos, vec![0, 1, 10, 11], "ascending hand_no order");
+        assert_eq!(hand_nos, vec![0, 1, 2, 3], "first-N, whole rotation sets");
         for h in &headers {
             assert_eq!(h["kept"], serde_json::json!(["sample"]));
         }
@@ -968,7 +970,7 @@ mod tests {
         let last = parsed.last().unwrap();
         assert_eq!(last["log_summary"]["hands_seen"], 20);
         assert_eq!(last["log_summary"]["hands_kept"], 4);
-        assert_eq!(last["log_summary"]["sample_every_decks"], 5);
+        assert_eq!(last["log_summary"]["sample_first_hands"], 3);
         assert_eq!(last["log_summary"]["top_pots"], serde_json::Value::Null);
         assert_eq!(last["log_summary"]["fault_hands_kept"], 0);
     }
@@ -1008,7 +1010,7 @@ mod tests {
             let mut log = SelectiveLog::new(
                 &mut buf,
                 LogSelection {
-                    sample_every_decks: None,
+                    sample_first_hands: None,
                     top_pots: Some(3),
                     fault_hands: 100,
                 },
@@ -1043,7 +1045,7 @@ mod tests {
             let mut log = SelectiveLog::new(
                 &mut buf,
                 LogSelection {
-                    sample_every_decks: Some(1),
+                    sample_first_hands: Some(u64::MAX),
                     top_pots: Some(2),
                     fault_hands: 100,
                 },
@@ -1080,7 +1082,7 @@ mod tests {
             let mut log = SelectiveLog::new(
                 &mut buf,
                 LogSelection {
-                    sample_every_decks: None,
+                    sample_first_hands: None,
                     top_pots: None,
                     fault_hands: 2,
                 },
@@ -1129,7 +1131,7 @@ mod tests {
             let mut log = SelectiveLog::new(
                 &mut buf,
                 LogSelection {
-                    sample_every_decks: None,
+                    sample_first_hands: None,
                     top_pots: None,
                     fault_hands: 0,
                 },

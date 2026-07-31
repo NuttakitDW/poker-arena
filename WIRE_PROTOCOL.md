@@ -456,13 +456,14 @@ is the bot at seat `s`) and, once from the CLI, a trailing
 `{"log_summary":{"hands_seen":H,"hands_kept":H}}` line.
 
 `--log-sample N` / `--log-top-pots K` / `--log-faults K` switch `--log`
-into selective mode: only sampled rotation sets (every Nth deck, all
-rotations), the K biggest-pot hands, and the first K fault hands
-(forfeited hands always kept) are written, as a batch when the match ends
-rather than incrementally. Selective headers add a `"kept"` array naming
-the reasons, e.g. `{"hand":7,"deck":3,"seats":[...],"kept":["sample",
-"top-pot"]}`, and the summary line adds `sample_every_decks`, `top_pots`,
-and `fault_hands_kept`.
+into selective mode: only the first N hands (extended to whole decks so a
+duplicate rotation set is never split), the K biggest-pot hands, and the
+first K fault hands (forfeited hands always kept) are written, as a batch
+when the match ends rather than incrementally. Selective headers add a
+`"kept"` array naming the reasons, e.g.
+`{"hand":7,"deck":3,"seats":[...],"kept":["sample","top-pot"]}`, and the
+summary line adds `sample_first_hands`, `top_pots`, and
+`fault_hands_kept`.
 
 ## Example transcript
 
