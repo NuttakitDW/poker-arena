@@ -27,9 +27,25 @@ use crate::log::EventSink;
 use crate::stat::RateStats;
 
 /// Reported to an optional progress callback after each deck finishes.
-pub struct Progress {
+pub struct Progress<'a> {
     pub decks_done: u64,
     pub hands_done: u64,
+    /// Interim per-bot standings, in bot argument order. Winnings-focused —
+    /// behavioral profiles arrive only with the final [`MatchResult`].
+    pub standings: &'a [Standing],
+}
+
+/// One bot's interim standing at a progress tick.
+#[derive(Debug, Clone)]
+pub struct Standing {
+    pub name: String,
+    pub total_chips: i64,
+    /// Mean winnings per hand so far, in the game's rate unit.
+    pub mean: f64,
+    /// 95% Student-t half-width of the mean; `None` under two observations.
+    pub ci95: Option<f64>,
+    pub observations: u64,
+    pub faults: u64,
 }
 
 /// Errors that prevent a match from running at all (as opposed to in-hand
@@ -116,7 +132,7 @@ pub fn run_match(
     config: &MatchConfig,
     bots: &mut [Box<dyn Bot>],
     mut sink: Option<&mut dyn EventSink>,
-    mut on_progress: Option<&mut dyn FnMut(Progress)>,
+    mut on_progress: Option<&mut dyn FnMut(&Progress<'_>)>,
 ) -> Result<MatchResult, MatchError> {
     // Threaded through `play_hand`/`deliver_events` as `&mut Option<&mut dyn
     // EventSink>` rather than reborrowed by value each call: reborrowing a
@@ -207,9 +223,21 @@ pub fn run_match(
 
         decks_done += 1;
         if let Some(cb) = on_progress.as_deref_mut() {
-            cb(Progress {
+            // Built lazily: matches without a callback pay nothing.
+            let standings: Vec<Standing> = (0..n)
+                .map(|b| Standing {
+                    name: bots[b].name().to_string(),
+                    total_chips: totals[b],
+                    mean: stats[b].mean(),
+                    ci95: stats[b].ci95_half_width(),
+                    observations: stats[b].count(),
+                    faults: faults[b],
+                })
+                .collect();
+            cb(&Progress {
                 decks_done,
                 hands_done: hands_played,
+                standings: &standings,
             });
         }
     }
@@ -762,6 +790,43 @@ mod tests {
             assert!(result.outcomes[0].faults > 0, "{id}");
             let total: i64 = result.outcomes.iter().map(|o| o.total_net_chips).sum();
             assert_eq!(total, 0, "{id}");
+        }
+    }
+
+    /// Interim standings must stay internally consistent at every tick:
+    /// zero-sum totals, observation counts tracking decks in duplicate
+    /// mode, and stable bot ordering.
+    #[test]
+    fn progress_standings_are_consistent_at_every_tick() {
+        let config = nl_config(8, 11, DealingMode::Duplicate, FaultPolicy::CheckFold);
+        let mut bots: Vec<Box<dyn Bot>> = vec![
+            Box::new(Caller::new("caller")),
+            Box::new(Random::new("random", 2)),
+        ];
+        let mut ticks: Vec<(u64, u64, Vec<(String, i64, u64)>)> = Vec::new();
+        let mut cb = |p: &Progress<'_>| {
+            ticks.push((
+                p.decks_done,
+                p.hands_done,
+                p.standings
+                    .iter()
+                    .map(|s| (s.name.clone(), s.total_chips, s.observations))
+                    .collect(),
+            ));
+        };
+        run_match(&config, &mut bots, None, Some(&mut cb)).unwrap();
+
+        assert_eq!(ticks.len(), 8, "one tick per deck");
+        for (deck, hands, standings) in &ticks {
+            assert_eq!(*hands, deck * 2, "duplicate heads-up: two hands/deck");
+            assert_eq!(standings.len(), 2);
+            assert_eq!(standings[0].0, "caller");
+            assert_eq!(standings[1].0, "random");
+            let total: i64 = standings.iter().map(|s| s.1).sum();
+            assert_eq!(total, 0, "standings must be zero-sum at every tick");
+            for s in standings {
+                assert_eq!(s.2, *deck, "one observation per completed deck");
+            }
         }
     }
 }

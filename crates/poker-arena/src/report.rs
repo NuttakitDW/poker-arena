@@ -15,7 +15,7 @@ use poker_wire::game::Stakes;
 
 use crate::behavior::BehaviorStats;
 use crate::config::{DealingMode, FaultPolicy, MatchConfig};
-use crate::runner::MatchResult;
+use crate::runner::{MatchResult, Progress};
 
 /// Breaking-change counter for the report shape.
 pub const REPORT_SCHEMA_VERSION: u32 = 1;
@@ -114,6 +114,49 @@ impl MatchReport {
                     observations: o.stats.count(),
                     faults: o.faults,
                     behavior: BehaviorReport::from(&o.behavior),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// One interim-standings line for `--progress-json`: emitted as JSON lines
+/// during a match so a consumer can render a live leaderboard with
+/// tightening confidence intervals. Same field conventions as
+/// [`MatchReport`].
+#[derive(Debug, Clone, Serialize)]
+pub struct ProgressReport {
+    pub decks_done: u64,
+    pub hands_done: u64,
+    pub bots: Vec<BotProgress>,
+}
+
+/// One bot's interim standing.
+#[derive(Debug, Clone, Serialize)]
+pub struct BotProgress {
+    pub name: String,
+    pub total_chips: i64,
+    pub rate_per100_mean: f64,
+    pub rate_per100_ci95: Option<f64>,
+    pub observations: u64,
+    pub faults: u64,
+}
+
+impl ProgressReport {
+    pub fn new(progress: &Progress<'_>) -> ProgressReport {
+        ProgressReport {
+            decks_done: progress.decks_done,
+            hands_done: progress.hands_done,
+            bots: progress
+                .standings
+                .iter()
+                .map(|s| BotProgress {
+                    name: s.name.clone(),
+                    total_chips: s.total_chips,
+                    rate_per100_mean: s.mean * 100.0,
+                    rate_per100_ci95: s.ci95.map(|hw| hw * 100.0),
+                    observations: s.observations,
+                    faults: s.faults,
                 })
                 .collect(),
         }

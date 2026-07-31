@@ -18,5 +18,5 @@ pub use bot::{ActionRequest, Bot, BotFault, HandEnd, HandStart};
 pub use config::{DealingMode, FaultPolicy, MatchConfig};
 pub use log::{EventSink, JsonLog};
 pub use remote::{WireBot, WireBotError};
-pub use report::{BehaviorReport, BotReport, MatchReport};
-pub use runner::{BotOutcome, MatchError, MatchResult, Progress, run_match};
+pub use report::{BehaviorReport, BotProgress, BotReport, MatchReport, ProgressReport};
+pub use runner::{BotOutcome, MatchError, MatchResult, Progress, Standing, run_match};

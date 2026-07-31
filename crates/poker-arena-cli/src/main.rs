@@ -134,6 +134,12 @@ struct RunArgs {
     #[arg(long, default_value_t = 0)]
     progress_every: u64,
 
+    /// Emit progress as JSON lines (interim standings incl. per-bot rate
+    /// and CI) on stderr instead of the human progress line. Requires
+    /// --progress-every > 0 to set the cadence.
+    #[arg(long, default_value_t = false)]
+    progress_json: bool,
+
     /// Result format on stdout: aligned human tables, or a single JSON
     /// document (see poker_arena::report::MatchReport) for programmatic
     /// consumers.
@@ -465,13 +471,26 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
     };
     let sink: Option<&mut dyn EventSink> = log_writer.as_mut().map(|l| l as &mut dyn EventSink);
 
+    if args.progress_json && args.progress_every == 0 {
+        return Err("--progress-json requires --progress-every > 0 for its cadence".to_string());
+    }
     let progress_every = args.progress_every;
-    let mut report_progress = move |p: Progress| {
-        if progress_every > 0 && p.decks_done.is_multiple_of(progress_every) {
+    let progress_json = args.progress_json;
+    let mut report_progress = move |p: &Progress<'_>| {
+        if progress_every == 0 || !p.decks_done.is_multiple_of(progress_every) {
+            return;
+        }
+        if progress_json {
+            let line = poker_arena::ProgressReport::new(p);
+            eprintln!(
+                "{}",
+                serde_json::to_string(&line).expect("progress serialization is infallible")
+            );
+        } else {
             eprintln!("{} decks, {} hands played", p.decks_done, p.hands_done);
         }
     };
-    let on_progress: Option<&mut dyn FnMut(Progress)> = if args.progress_every > 0 {
+    let on_progress: Option<&mut dyn FnMut(&Progress<'_>)> = if args.progress_every > 0 {
         Some(&mut report_progress)
     } else {
         None

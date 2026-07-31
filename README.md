@@ -50,8 +50,10 @@ factor, went-to/won-at-showdown, fold rate) alongside the winnings table.
 For programmatic consumers — a website ranking bots, a script sweeping
 configurations — `--output json` replaces the tables with a single JSON
 document (`schema_version`-tagged; see `poker_arena::report::MatchReport`)
-carrying the seed, config, and per-bot results; per-hand detail streams
-separately via `--log` as JSON lines.
+carrying the seed, config, and per-bot results; `--progress-json` (with
+`--progress-every N`) additionally streams interim standings as JSON lines
+on stderr — a live leaderboard with tightening confidence intervals — and
+per-hand detail streams separately via `--log` as JSON lines.
 
 ## Out-of-process bots (any language)
 
