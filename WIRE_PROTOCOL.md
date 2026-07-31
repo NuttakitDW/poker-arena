@@ -77,7 +77,7 @@ Sent once, immediately after connection.
 
 | field           | type              | meaning                                   |
 |-----------------|-------------------|--------------------------------------------|
-| `proto`         | u32               | Protocol version (currently `2`).          |
+| `proto`         | u32               | Protocol version (currently `1`).          |
 | `game_id`       | string            | Registry id, e.g. `"holdem-nl"`, `"drawmaha-27-fl"`. Bots are expected to know the named game's rules from its id. |
 | `stakes`        | `Stakes`          | The actual per-match stakes (see below).   |
 | `betting`       | `BettingKind`     | The betting structure (see below).         |
