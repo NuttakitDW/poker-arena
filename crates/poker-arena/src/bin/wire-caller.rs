@@ -1,7 +1,9 @@
 //! Reference wire bot: the check/call strategy, spoken over the wire
 //! protocol. Doubles as the fixture the arena's wire tests play against.
 //!
-//! Usage: `wire-caller [--tcp HOST:PORT] [--name NAME] [--sleep-ms N]`.
+//! Usage: `wire-caller [--tcp HOST:PORT] [--sleep-ms N]`. Identity is
+//! operator-assigned (`--bot name@spec` on the arena side); this bot
+//! carries none of its own.
 //! Default transport is stdio (arena → stdin, bot → stdout); `--sleep-ms`
 //! stalls before every action, which is how tests provoke timeouts.
 
@@ -15,14 +17,12 @@ use poker_wire::framing::{WireError, read_msg, write_msg};
 use poker_wire::message::{ArenaMsg, BotMsg, WireDecision};
 
 fn main() -> ExitCode {
-    let mut name = "wire-caller".to_string();
     let mut sleep_ms = 0u64;
     let mut tcp: Option<String> = None;
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--name" => name = next_value(&mut args, "--name"),
             "--tcp" => tcp = Some(next_value(&mut args, "--tcp")),
             "--sleep-ms" => {
                 sleep_ms = next_value(&mut args, "--sleep-ms")
@@ -38,7 +38,7 @@ fn main() -> ExitCode {
             Ok(stream) => {
                 let _ = stream.set_nodelay(true);
                 match stream.try_clone() {
-                    Ok(reader) => play(BufReader::new(reader), stream, &name, sleep_ms),
+                    Ok(reader) => play(BufReader::new(reader), stream, sleep_ms),
                     Err(e) => Err(e.to_string()),
                 }
             }
@@ -47,7 +47,6 @@ fn main() -> ExitCode {
         None => play(
             BufReader::new(std::io::stdin()),
             std::io::stdout(),
-            &name,
             sleep_ms,
         ),
     };
@@ -62,12 +61,7 @@ fn main() -> ExitCode {
 }
 
 /// Read arena messages until the match ends or the stream closes.
-fn play<R: BufRead, W: Write>(
-    mut reader: R,
-    mut writer: W,
-    name: &str,
-    sleep_ms: u64,
-) -> Result<(), String> {
+fn play<R: BufRead, W: Write>(mut reader: R, mut writer: W, sleep_ms: u64) -> Result<(), String> {
     loop {
         let msg = match read_msg::<_, ArenaMsg>(&mut reader) {
             Ok(msg) => msg,
@@ -75,9 +69,7 @@ fn play<R: BufRead, W: Write>(
             Err(e) => return Err(e.to_string()),
         };
         let reply = match msg {
-            ArenaMsg::Hello { .. } => BotMsg::Join {
-                name: name.to_string(),
-            },
+            ArenaMsg::Hello { .. } => BotMsg::Join {},
             ArenaMsg::Act { decision, .. } => {
                 if sleep_ms > 0 {
                     std::thread::sleep(Duration::from_millis(sleep_ms));

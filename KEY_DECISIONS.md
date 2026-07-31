@@ -139,6 +139,14 @@ stand pat at a draw; bring-in at a bring-in decision) and continue, or
 forfeit the match. Fault counts are reported — a bot that "wins" while
 faulting is visibly broken.
 
+**Bot identity is operator-assigned; bots are anonymous processes.** The
+wire `join` is a bare ready signal — a bot never names itself. Names come
+from the operator (`--bot alice@cmd:...`, with predictable defaults and
+`-2`/`-3` dedup suffixes) and are announced back in `joined`. Rationale:
+the operator already knows who each process is, self-declared names
+created an unfixable matching problem between registry identity and
+binary behavior, and they were a small impersonation surface besides.
+
 **One `Bot` trait for everything.** Wire bots implement the same trait the
 builtins do (`act` returns `Result<Action, BotFault>` so transports can
 report failure); the runner never distinguishes. A timeout must not desync

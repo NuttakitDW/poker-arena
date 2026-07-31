@@ -45,26 +45,21 @@ identical either way.
 1. On connect, the arena sends `hello` (protocol version, the game id, the
    per-match parameters that can't be derived from that id, seat count,
    starting stack, and the per-action timeout it will enforce).
-2. The bot replies with `join`, giving its display name.
+2. The bot replies with `join` — a bare ready signal carrying nothing.
+   Bots have no naming concept: identity is operator-assigned (the CLI's
+   `--bot NAME@spec`); a legacy `name` field in `join` is ignored like any
+   unknown field.
 3. Once **every** seat has connected, the arena sends each bot a `joined`
-   acknowledgment carrying its final competition name. This may differ
-   from the requested name: duplicate names across the field are
-   disambiguated with `-2`, `-3`… suffixes, first-come keeps the bare
-   name. Treat it as your authoritative identity in all match records
-   (results, standings, log seat headers). Because names are assigned
-   field-wide, there may be a delay between your `join` and the `joined`
-   while other bots connect.
+   message announcing its operator-assigned competition name (duplicates
+   across the field get `-2`, `-3`… suffixes). Purely informational — use
+   it to label your own logs; it is the name appearing in all match
+   records. Because names are assigned field-wide, there may be a delay
+   between your `join` and the `joined` while other bots connect.
 4. From then on, the arena drives the conversation: `hand-start` at the top
    of each hand, `event` for everything observable, `act` when it's this
    bot's turn (which the bot answers with `action`), `hand-end` at the
    bottom of each hand, and finally `match-end` when the match is over and
    no further messages will be sent.
-
-**Name constraints:** a `join` name must be 1–32 characters and contain no
-control characters (bytes `< 0x20` or `0x7f`). The arena validates this
-server-side and will reject/disconnect a bot that sends an invalid name —
-bots should still self-validate to fail fast and get a clear local error
-instead of a silent disconnect.
 
 ## Messages: arena → bot (`ArenaMsg`)
 
@@ -250,14 +245,12 @@ this as an internal `Unknown` variant; on the wire it is simply whatever
 
 ### `join`
 
-The only message a bot sends unprompted, immediately after `hello`.
-
-| field  | type   | meaning                                    |
-|--------|--------|----------------------------------------------|
-| `name` | string | Display name, 1–32 chars, no control chars.  |
+The only message a bot sends unprompted, immediately after `hello`. A bare
+ready signal — no fields. Identity is operator-assigned and announced back
+in `joined`; a legacy `name` field here is ignored like any unknown field.
 
 ```json
-{"t":"join","name":"check-call-bot"}
+{"t":"join"}
 ```
 
 ### `action`
@@ -540,7 +533,7 @@ for line in sys.stdin:
     msg = json.loads(line)
     t = msg.get("t")
     if t == "hello":
-        send({"t": "join", "name": "check-call-bot"})
+        send({"t": "join"})
     elif t == "act":
         send({"t": "action", "action": choose_action(msg["decision"])})
     elif t == "match-end":

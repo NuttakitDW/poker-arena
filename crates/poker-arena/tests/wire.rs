@@ -129,13 +129,7 @@ fn handshake_and_single_action() {
     let (mut bot, peer) = with_scripted_peer(
         |reader, writer| {
             let _: ArenaMsg = read_msg(reader).expect("hello");
-            write_msg(
-                writer,
-                &BotMsg::Join {
-                    name: "scripted".to_string(),
-                },
-            )
-            .unwrap();
+            write_msg(writer, &BotMsg::Join {}).unwrap();
             assert!(read_until_act(reader));
             write_msg(
                 writer,
@@ -148,7 +142,8 @@ fn handshake_and_single_action() {
         Duration::from_secs(5),
     );
 
-    assert_eq!(bot.name(), "scripted");
+    // Identity is operator-assigned; until then the placeholder holds.
+    assert_eq!(bot.name(), "wire-bot");
     bot.set_timeout(Some(Duration::from_secs(5)));
     let scenario = Scenario::new();
     assert_eq!(bot.act(&scenario.request()), Ok(Action::Call));
@@ -165,13 +160,7 @@ fn act_timeout_yields_timeout_fault() {
     let (mut bot, peer) = with_scripted_peer(
         move |reader, writer| {
             let _: ArenaMsg = read_msg(reader).expect("hello");
-            write_msg(
-                writer,
-                &BotMsg::Join {
-                    name: "slowpoke".to_string(),
-                },
-            )
-            .unwrap();
+            write_msg(writer, &BotMsg::Join {}).unwrap();
 
             // Request #1: answer far too late, with a distinctive action.
             assert!(read_until_act(reader));
@@ -220,13 +209,7 @@ fn disconnect_yields_disconnected() {
     let (mut bot, peer) = with_scripted_peer(
         |reader, writer| {
             let _: ArenaMsg = read_msg(reader).expect("hello");
-            write_msg(
-                writer,
-                &BotMsg::Join {
-                    name: "quitter".to_string(),
-                },
-            )
-            .unwrap();
+            write_msg(writer, &BotMsg::Join {}).unwrap();
             // Return: the stream drops and the connection closes.
         },
         Duration::from_secs(5),
@@ -247,13 +230,7 @@ fn garbage_yields_protocol_fault() {
     let (mut bot, peer) = with_scripted_peer(
         |reader, writer| {
             let _: ArenaMsg = read_msg(reader).expect("hello");
-            write_msg(
-                writer,
-                &BotMsg::Join {
-                    name: "garbler".to_string(),
-                },
-            )
-            .unwrap();
+            write_msg(writer, &BotMsg::Join {}).unwrap();
             assert!(read_until_act(reader));
             writer.write_all(b"this is not json\n").unwrap();
             writer.flush().unwrap();
@@ -309,6 +286,7 @@ fn subprocess_end_to_end_match() {
             Duration::from_secs(10),
         )
         .expect("spawn wire-caller");
+        wire.set_name("wire-caller");
         assert_eq!(wire.name(), "wire-caller");
         wire.set_timeout(config.timeout);
 
@@ -337,14 +315,13 @@ fn tcp_end_to_end_match() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_wire-caller"))
         .arg("--tcp")
         .arg(format!("127.0.0.1:{port}"))
-        .arg("--name")
-        .arg("tcp-caller")
         .spawn()
         .expect("spawn wire-caller");
 
     let config = nl_config(decks, Some(Duration::from_secs(5)), FaultPolicy::CheckFold);
     let mut wire = WireBot::listen_tcp_on(listener, hello(Some(5_000)), Duration::from_secs(10))
         .expect("handshake over tcp");
+    wire.set_name("tcp-caller");
     assert_eq!(wire.name(), "tcp-caller");
     wire.set_timeout(config.timeout);
 
@@ -392,13 +369,7 @@ fn joined_ack_carries_the_assigned_name() {
         let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
         let mut writer = stream;
         let _hello: ArenaMsg = read_msg(&mut reader).unwrap();
-        write_msg(
-            &mut writer,
-            &BotMsg::Join {
-                name: "caller".to_string(),
-            },
-        )
-        .unwrap();
+        write_msg(&mut writer, &BotMsg::Join {}).unwrap();
         // The ack arrives after the arena finishes seating everyone.
         let ack: ArenaMsg = read_msg(&mut reader).unwrap();
         match ack {
@@ -413,7 +384,7 @@ fn joined_ack_carries_the_assigned_name() {
         std::time::Duration::from_secs(5),
     )
     .unwrap();
-    assert_eq!(bot.name(), "caller");
+    assert_eq!(bot.name(), "wire-bot");
     bot.set_name("caller-2");
     assert_eq!(bot.name(), "caller-2");
 

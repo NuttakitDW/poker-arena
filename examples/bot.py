@@ -101,7 +101,7 @@ def main():
         msg = json.loads(line)
         t = msg.get("t")
         if t == "hello":
-            send({"t": "join", "name": "python-example"})
+            send({"t": "join"})  # identity is operator-assigned
         elif t == "hand-start":
             table.hand_start(msg)
         elif t == "event":

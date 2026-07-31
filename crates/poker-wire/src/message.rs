@@ -127,8 +127,10 @@ pub enum ArenaMsg {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "t", rename_all = "kebab-case")]
 pub enum BotMsg {
-    /// First message on a new connection: identify to the arena.
-    Join { name: String },
+    /// First message on a new connection: "I'm ready". Carries nothing —
+    /// bot identity is operator-assigned (see the CLI's `--bot name@spec`);
+    /// the arena announces the assigned name in [`ArenaMsg::Joined`].
+    Join {},
     /// Response to an `ArenaMsg::Act`.
     Action { action: Action },
     /// Catch-all for message types this build doesn't know about yet.
@@ -305,9 +307,7 @@ mod tests {
 
     fn bot_msg_battery() -> Vec<BotMsg> {
         vec![
-            BotMsg::Join {
-                name: "example-bot".to_string(),
-            },
+            BotMsg::Join {},
             BotMsg::Action {
                 action: Action::Call,
             },
@@ -584,13 +584,10 @@ mod tests {
 
     #[test]
     fn unknown_fields_in_a_known_message_are_ignored() {
+        // Also covers legacy name-carrying joins: the name is just an
+        // unknown field now, harmlessly dropped.
         let msg: BotMsg =
             serde_json::from_str(r#"{"t":"join","name":"bob","extra_field":123}"#).unwrap();
-        assert_eq!(
-            msg,
-            BotMsg::Join {
-                name: "bob".to_string()
-            }
-        );
+        assert_eq!(msg, BotMsg::Join {});
     }
 }

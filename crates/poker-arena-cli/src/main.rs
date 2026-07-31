@@ -122,6 +122,9 @@ struct RunArgs {
     /// A competitor: `builtin:folder` | `builtin:caller` | `builtin:shover`
     /// | `builtin:random[:seed]` | `tcp:PORT` (wait for a bot to connect on
     /// 127.0.0.1:PORT) | `cmd:COMMAND` (spawn a bot and talk over its stdio).
+    /// Prefix any spec with `NAME@` to assign the competition name
+    /// (`alice@cmd:python3 bot.py`); bots carry no identity of their own.
+    /// Unnamed bots default to the builtin kind, `tcp-PORT`, or `bot-N`.
     /// Repeat once per seat (count must fit the game's seat range).
     #[arg(long = "bot")]
     bots: Vec<String>,
@@ -269,6 +272,25 @@ impl BuiltinKind {
     }
 }
 
+/// Split an optional `NAME@` prefix off a `--bot` spec and validate it.
+fn parse_named_bot_spec(spec: &str) -> Result<(Option<String>, BotSpec), String> {
+    let (name, rest) = match spec.split_once('@') {
+        // `@` inside a command string is fine: only treat the prefix as a
+        // name when it doesn't look like the start of a spec itself.
+        Some((n, r)) if !n.contains(':') && !n.is_empty() => (Some(n), r),
+        _ => (None, spec),
+    };
+    if let Some(n) = name {
+        let count = n.chars().count();
+        if count > 32 || n.chars().any(char::is_control) {
+            return Err(format!(
+                "invalid bot name {n:?}: 1..=32 characters, no control characters"
+            ));
+        }
+    }
+    Ok((name.map(str::to_string), parse_bot_spec(rest)?))
+}
+
 fn parse_bot_spec(spec: &str) -> Result<BotSpec, String> {
     if let Some(port) = spec.strip_prefix("tcp:") {
         let port = port
@@ -319,10 +341,11 @@ enum Pending {
 /// order connections are expected in is predictable) and names the whole
 /// field, disambiguating duplicates with `-2`, `-3`… suffixes.
 ///
-/// A wire bot's base name is the one it gave in its `join`, so the same
-/// disambiguation covers builtin and wire bots alike.
+/// Names are operator-assigned (`NAME@spec`); bots carry no identity of
+/// their own. Unnamed specs default to the builtin kind, `tcp-PORT`, or
+/// positional `bot-N`.
 fn build_bots(
-    specs: Vec<BotSpec>,
+    specs: Vec<(Option<String>, BotSpec)>,
     hello: &ArenaMsg,
     timeout: Option<Duration>,
 ) -> Result<Vec<Box<dyn Bot>>, String> {
@@ -330,8 +353,15 @@ fn build_bots(
     // more slack than a single decision does.
     let handshake = timeout.unwrap_or_default().max(Duration::from_secs(10));
 
+    let mut names = Vec::with_capacity(specs.len());
     let mut pending = Vec::with_capacity(specs.len());
-    for spec in specs {
+    for (i, (name, spec)) in specs.into_iter().enumerate() {
+        let default_name = match &spec {
+            BotSpec::Builtin(kind) => kind.base_name().to_string(),
+            BotSpec::Tcp(port) => format!("tcp-{port}"),
+            BotSpec::Cmd(_) => format!("bot-{}", i + 1),
+        };
+        names.push(name.unwrap_or(default_name));
         pending.push(match spec {
             BotSpec::Builtin(kind) => Pending::Builtin(kind),
             BotSpec::Tcp(port) => {
@@ -350,17 +380,9 @@ fn build_bots(
         });
     }
 
-    let base_names: Vec<String> = pending
-        .iter()
-        .map(|p| match p {
-            Pending::Builtin(kind) => kind.base_name().to_string(),
-            Pending::Wire(bot) => bot.name().to_string(),
-        })
-        .collect();
-
     Ok(pending
         .into_iter()
-        .zip(disambiguate(&base_names))
+        .zip(disambiguate(&names))
         .enumerate()
         .map(|(i, (p, name))| match p {
             Pending::Builtin(kind) => kind.build(name, i),
@@ -462,10 +484,10 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
         ));
     }
 
-    let specs: Vec<BotSpec> = args
+    let specs: Vec<(Option<String>, BotSpec)> = args
         .bots
         .iter()
-        .map(|s| parse_bot_spec(s))
+        .map(|s| parse_named_bot_spec(s))
         .collect::<Result<_, _>>()?;
 
     let timeout = (args.timeout_ms > 0).then(|| Duration::from_millis(args.timeout_ms));

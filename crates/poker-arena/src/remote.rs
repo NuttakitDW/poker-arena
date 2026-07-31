@@ -47,9 +47,6 @@ pub enum WireBotError {
     BadJoin(String),
 }
 
-/// Longest name a bot may claim in its `join` (see `WIRE_PROTOCOL.md`).
-const MAX_NAME_CHARS: usize = 32;
-
 /// A bot that lives behind a byte stream: a socket peer or a child process.
 pub struct WireBot {
     name: String,
@@ -113,10 +110,10 @@ impl WireBot {
         write_msg(&mut writer, &hello)?;
 
         let deadline = Instant::now() + handshake_timeout;
-        let name = loop {
+        loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             match rx.recv_timeout(remaining) {
-                Ok(Ok(BotMsg::Join { name })) => break validate_name(&name)?,
+                Ok(Ok(BotMsg::Join {})) => break,
                 // Forward compatibility: an unrecognized message before the
                 // join is a no-op, not an error.
                 Ok(Ok(BotMsg::Unknown)) => continue,
@@ -135,10 +132,12 @@ impl WireBot {
                     ));
                 }
             }
-        };
+        }
 
         Ok(WireBot {
-            name,
+            // Placeholder until the operator assigns the real name via
+            // `set_name` (bots carry no identity of their own).
+            name: "wire-bot".to_string(),
             writer,
             rx,
             dead: false,
@@ -286,24 +285,6 @@ impl WireBot {
     }
 }
 
-/// Validate a joined name per `WIRE_PROTOCOL.md`: 1–32 characters after
-/// trimming, no control characters.
-fn validate_name(raw: &str) -> Result<String, WireBotError> {
-    let name = raw.trim();
-    let len = name.chars().count();
-    if len == 0 || len > MAX_NAME_CHARS {
-        return Err(WireBotError::BadJoin(format!(
-            "name must be 1..={MAX_NAME_CHARS} characters, got {raw:?}"
-        )));
-    }
-    if name.chars().any(char::is_control) {
-        return Err(WireBotError::BadJoin(format!(
-            "name must not contain control characters, got {raw:?}"
-        )));
-    }
-    Ok(name.to_string())
-}
-
 impl Bot for WireBot {
     fn name(&self) -> &str {
         &self.name
@@ -400,31 +381,5 @@ impl Drop for WireBot {
         if let Some(socket) = &self.shutdown {
             let _ = socket.shutdown(std::net::Shutdown::Both);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn valid_names_are_trimmed() {
-        assert_eq!(validate_name("  bob  ").unwrap(), "bob");
-        assert_eq!(
-            validate_name(&"n".repeat(MAX_NAME_CHARS)).unwrap().len(),
-            32
-        );
-    }
-
-    #[test]
-    fn empty_or_oversized_names_are_rejected() {
-        assert!(validate_name("   ").is_err());
-        assert!(validate_name(&"n".repeat(MAX_NAME_CHARS + 1)).is_err());
-    }
-
-    #[test]
-    fn control_characters_are_rejected() {
-        assert!(validate_name("bo\u{7}b").is_err());
-        assert!(validate_name("bo\u{7f}b").is_err());
     }
 }
