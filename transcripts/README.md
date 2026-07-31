@@ -1,12 +1,17 @@
 # Curated hand transcripts
 
 This directory holds hand-picked, verified-interesting hands for each of the
-twenty registered game variants — real output from `poker-arena run --log`,
-not synthetic examples. Each `transcripts/<game-id>.jsonl` contains 3–5
-complete hands, extracted **verbatim** (same bytes, same line order, no
-renumbering or reformatting) from a full match log produced with a fixed
-seed, so anyone can reproduce the source match and find the same hands at
-the same hand numbers.
+twenty registered betting-game variants — real output from `poker-arena run
+--log`, not synthetic examples — plus the four registered Open Face Chinese
+(OFC) variants, real output from the separate `poker-arena-ofc run --log`.
+OFC is a different binary, a different registry, and a different wire
+protocol (no chips, no betting, no pot — see "OFC transcripts" below and
+`WIRE_PROTOCOL_OFC.md`), but the same curation discipline applies: every
+`transcripts/<game-id>.jsonl` file, OFC included, contains 3–5 complete
+hands, extracted **verbatim** (same bytes, same line order, no renumbering
+or reformatting) from a full match log produced with a fixed seed, so
+anyone can reproduce the source match and find the same hands at the same
+hand numbers.
 
 The first thirteen games (holdem through 27sd-nl) are the "classic"
 families: community-card, stud, and draw games where a hand is the
@@ -16,6 +21,13 @@ drawmaha family) are split-pot games built by evaluating the *same* hole
 cards two different, independent ways — see "Split-half games" below
 before reading those sections, since their `hi`/`lo` fields don't mean
 what they mean in the classic games.
+
+Beyond those twenty, four more files (`ofc`, `ofc-pineapple`,
+`ofc-progressive`, `ofc-27`) cover Open Face Chinese: no betting, no pot,
+boards built one placement at a time instead of hole cards played against a
+board, and points instead of chips. See "OFC transcripts" below, after the
+twenty betting-game sections, for their own line shape and reading notes
+before diving into those four.
 
 ## Line shape
 
@@ -1083,4 +1095,253 @@ against the engine's own `pot-awarded` winner, not guessed.
   `Jh Ad Kc 6s Qd` (`A-K-Q-J-6`, no pair) is unpaired and would have won
   any showdown; seat 1 stood pat with the worse hand and bet it as the
   better one, winning 16898 purely on fold equity.
+
+---
+
+## OFC transcripts
+
+Four more files, one per registered `poker-arena-ofc` variant
+(`poker-arena-ofc games` lists them). OFC has no chips, no betting, no pot,
+and no legal-actions surface — only placement decisions — so its wire
+protocol (`WIRE_PROTOCOL_OFC.md`) and its log format are both entirely
+different from the twenty games above. The authoritative rules contract is
+the module doc at the top of `crates/poker-core/src/ofc/state.rs`; what
+follows is enough to read these four files without it.
+
+**Line shape.** Every OFC hand opens with a header line carrying no `"ev"`
+key, `{"hand":N,"seats":[...]}` — like `27sd-nl`'s header (see above) except
+there is no `deck` field: an OFC match has no deck-grouping concept, one hand
+is one deck, so there is nothing to group (see the module doc at the top of
+`crates/poker-arena/src/ofc/log.rs`). Every event line is
+`{"hand":N,"ev":<OfcEvent>}`, serialized exactly as
+[`WIRE_PROTOCOL_OFC.md`](../WIRE_PROTOCOL_OFC.md) documents under
+[Events (`OfcEvent`)](../WIRE_PROTOCOL_OFC.md#events-ofcevent) — `fantasyland`,
+`deal`, `place`, `showdown`, `score`. As with `27sd-nl`, each file below keeps
+its curated hands' header lines but drops the trailing
+`{"log_summary":{...}}` line, since that's match-level, not per-hand.
+
+**How to read a hand.** `fantasyland` (if present) announces a seat's card
+count for the hand before any deal. `deal`/`place` pairs repeat once per
+placement turn, in table order (seat 1, 2, …, n−1, 0 — the button, seat 0,
+goes last), until every seat's board is full: `deal` shows the cards a seat
+was just dealt (private — other seats' copies of the same event show
+`"cards":[]` with `count` intact, exactly like `deal-hole` in the twenty
+games above), and `place` shows where they went (`placements`; `discarded`
+lists the rest). Once every board is full, one `showdown` event per seat (top
+three cards, middle five, bottom five, each row's `HandValue`, its royalties,
+the foul flag, and next hand's fantasyland count, `null` if none) reveals
+everything, in table order; one `score` event per seat, also table order,
+gives that seat's net points for the hand, always summing to zero.
+
+**Discard and fantasyland privacy, visible here.** On the real wire, a `place`
+event's `discarded` field is always redacted to `[]` for every seat but the
+one placing (`count` stays accurate), and a fantasyland seat's `placements`
+read as `[]` to everyone else until its `showdown` reveal — see
+[Events (`OfcEvent`)](../WIRE_PROTOCOL_OFC.md#events-ofcevent). This
+directory's logs are the arena's own internal record, not any one bot's wire
+feed, so — exactly like the "a spectator/log reader sees everything" note for
+the twenty games above — neither redaction applies here: every seat's
+`discarded` cards and every fantasyland seat's `placements` are printed in
+full as they happen, not just at showdown. Hand 249 in `ofc.jsonl` and hand
+97 in `ofc-pineapple.jsonl` are fantasyland hands below; their `place` events
+show the placing seat's full board being built turn by turn, something no
+live opponent bot would see until that hand's `showdown` line.
+
+**Fantasyland is carried by the bot, not the seat.** `poker-arena-ofc`
+rotates bots through seats every hand for positional fairness (bot `b` sits
+at seat `(b + hand_no) % n`; see the module doc at the top of
+`crates/poker-arena/src/ofc/runner.rs`), but a `showdown` event's
+`next_fantasyland` count travels with the *bot* that earned it, not the seat
+number it was sitting in. Below, every fantasyland-entry hand is immediately
+followed by that same bot's fantasyland hand — often at a different seat
+number, since a hand's gone by in between.
+
+**Scoring, briefly.** Rows are valued bottom/middle with `high` (or, for
+`ofc-27`'s middle, `deuce_to_seven_low`) and top with `three_card_high`;
+greater is always better. A board fouls if its rows are out of order (top >
+middle or middle > bottom; `ofc-27` instead fouls on top > bottom, or a
+middle that isn't a qualifying ten-low-or-better 2-7 hand — `ofc-27`'s middle
+has no ordering relationship with its neighbors at all, only its own
+qualifier). Scoring is pairwise over every pair of seats: with neither
+fouled, +1 per row won outright (ties pay nothing) plus 3 more for winning
+all three, plus the royalty difference (royalties always count, win or
+lose); with one fouled, the fouler pays 6 plus the opponent's royalties and
+its own are voided, rows uncompared; with both fouled, nothing changes
+hands. A seat's net is the sum over all its pairs, and every hand's nets sum
+to zero. Royalty tables (top pairs/trips are rank-scaled; middle and bottom
+are flat per hand class) are in the module doc.
+
+**Build.** Same crate as the twenty games above: `cargo build --release -p
+poker-arena-cli` also produces `./target/release/poker-arena-ofc`. Each
+section below gives the exact command used for that variant's source match,
+plus which hand numbers were kept from it.
+
+**`WIRE_PROTOCOL_OFC.md`'s example transcript, captured.** That document's
+"Example transcript" section (a wire-bot's-eye view of one hand, seed 113)
+says to regenerate it with the capture recipe here: it was captured with
+`poker-arena-ofc run --game ofc-pineapple --bot builtin:greedy --bot
+cmd:"python3 <capture wrapper>" --hands 1 --seed 113`, where `<capture
+wrapper>` is `examples/ofc_bot.py` modified to tee each line it receives to a
+file prefixed `"< "` and each line it sends prefixed `"> "`, in the order
+they cross the wire — the same `<`/`>` convention `WIRE_PROTOCOL.md`'s own
+example transcript uses. That file's own transcript is captured the same
+way it's always been: no recipe is spelled out in its own doc beyond calling
+itself "captured verbatim from a real match" — this note exists because
+`WIRE_PROTOCOL_OFC.md` explicitly points here for its recipe; `WIRE_PROTOCOL.md`
+makes no such promise and needs no such note.
+
+## ofc — Open Face Chinese
+
+```sh
+./target/release/poker-arena-ofc run --game ofc --hands 400 --seed 7 \
+  --bot builtin:greedy --bot builtin:random --bot builtin:filler \
+  --bot builtin:random:9 --log ofc.log
+```
+
+Four seats (`greedy`, `random`, `filler`, `random-2`) so at least one hand
+below shows genuine multiway pairwise scoring, not just a single 1-vs-1
+comparison.
+
+- **hand 3** — a clean four-way hand: nobody fouls and nobody rivers a
+  royalty-grade row; three ordinary rows per seat are compared pairwise with
+  nothing else going on. Final nets: seat 1 −13, seat 2 +11, seat 3
+  (`greedy`) +13, seat 0 −11.
+- **hand 127** — seat 0 fouls: its middle (a bare pair of sixes, `6c 6d 8c
+  Jd 4d`) is worth more than its own bottom (`Jc 5d Ks 4c 7d`, king-high, no
+  pair at all), breaking the required top ≤ middle ≤ bottom order, so it
+  pays 6 plus royalties to each of the other three seats and its own
+  royalties are voided. Seat 3 (`greedy`) happens to river bottom quad
+  nines (`9c 9h 9s 3d 9d`, royalty 10) — comfortably the best hand at the
+  table — and nets +34; seats 1 and 2 net −2 and −4 from their own
+  row-by-row play against each other and seat 3; seat 0 nets −28, the 6+10,
+  6+0, 6+0 foul tax paid three times over.
+- **hand 248** — three of the four seats foul at once (seats 1, 2, and 3),
+  leaving seat 0 (`greedy`) the only clean board; a foul-vs-foul pairing
+  changes nothing per the rule above, so the whole hand reduces to three
+  identical 6-plus-royalties payments into seat 0. Seat 0's `9d Qs Qd` pairs
+  queens on top (royalty 7) for 6+7=13 from each opponent — net +39, a clean
+  13×3 sweep. QQ+ on top also earns fantasyland: `next_fantasyland:13`. See
+  hand 249.
+- **hand 249** — the fantasyland hand itself, one hand later. Seats have
+  rotated, so `greedy` — the seat-0 bot from hand 248 — is seat 1 here; its
+  `fantasyland` event announces 13 cards up front, and its one placement
+  turn puts down a full board at once (`bottom`: `7c 7h 7s Kd Kh`, sevens
+  full of kings, royalty 6). Of its three opponents, two foul and each pay
+  the 6-plus-royalties tax; the third is clean but simply loses every row
+  plus the royalty difference — a real three-row sweep on top of the two
+  foul payments; greedy nets +36. A full house bottom isn't quads, so
+  fantasyland doesn't carry over: `next_fantasyland:null`.
+
+## ofc-pineapple — Pineapple OFC
+
+```sh
+./target/release/poker-arena-ofc run --game ofc-pineapple --hands 200 \
+  --seed 7 --bot builtin:greedy --bot builtin:random --bot builtin:filler \
+  --log ofc-pineapple.log
+```
+
+Pineapple rounds deal 3 and place 2, discarding the third; per the privacy
+note above, every discard below is visible in this log. In `hand 45`, for
+example, every `place` event after the opening 5-card turn carries its
+seat's real discarded card in the clear (e.g. seat 1's `"discarded":["Qd"]`)
+— a live opponent bot watching that same seat's `place` event over the wire
+would see only `"discarded":[]` with `"count":1` instead: unlike a
+fantasyland board, a discard is never revealed to opponents, not even at
+showdown.
+
+- **hand 45** — a royalty-heavy scoop: seat 0 (`greedy`) makes a full house
+  on both back rows at once — middle `Jc 9h Jh Js 9d` (jacks full of nines,
+  royalty 12) and bottom `8c 8d Qc Qs Qh` (queens full of eights, royalty
+  6), 18 royalty points on one board — while both opponents foul (each
+  one's own top row outranks its own weaker middle). Seat 0 collects
+  6+18=24 from each and nets +48.
+- **hand 96** — seat 0 (`greedy`)'s top pair of queens (`6d Qc Qh`, royalty
+  7) is QQ+, earning fantasyland: `next_fantasyland:14` (pineapple's entry
+  count — one more than classic `ofc`'s 13, since a pineapple board is built
+  from 5 + 4×3 = 17 dealt cards rather than 5 + 8×1 = 13). Seat 2 fouls;
+  seat 0 nets +26. See hand 97.
+- **hand 97** — `greedy`'s fantasyland hand, one hand later, now at seat 1.
+  Its single 14-card turn places a pair of nines on top (`4s 9c 9s`, royalty
+  4), kings-and-tens two pair in the middle, and a 3-to-7 straight on the
+  bottom (`3h 4d 5s 6h 7d`, royalty 2); seat 0 fouls (its own top pair of
+  jacks outranks its middle); greedy nets +24. A straight bottom isn't
+  quads, so no stay: `next_fantasyland:null`.
+
+## ofc-progressive — Progressive Pineapple OFC
+
+```sh
+./target/release/poker-arena-ofc run --game ofc-progressive --hands 1000 \
+  --seed 2 --bot builtin:greedy --bot builtin:random --bot builtin:filler \
+  --log ofc-progressive.log
+```
+
+Progressive's fantasyland entry count scales with the top row (`QQ→14,
+KK→15, AA→16, any top trips→17` — see the table in
+[`WIRE_PROTOCOL_OFC.md`](../WIRE_PROTOCOL_OFC.md#the-games)); hand 793 below
+lands the maximum, 17, the biggest entry found scanning several seeds up to
+a few thousand hands each.
+
+- **hand 26** — a clean scoop, no foul on either side: seat 2 (`greedy`)'s
+  middle trip nines (`As 9c 9s 9d Ks`, royalty 2) and bottom full house
+  (`4d 4s 6d 6s 4h`, fours full of sixes, royalty 6) beat both rivals'
+  boards outright; nets +28.
+- **hand 793** — the richest hand in the set: seat 1 (`greedy`) makes top
+  trip tens (`Ts Td Th`, royalty 18 — the top end of the rank-scaled trips
+  table, `222`=10 up to `AAA`=22), middle trip queens (`Qs Ad Qh Qd 7d`,
+  royalty 2), and bottom quad deuces (`2c 2h 2s 2d 6h`, royalty 10) — 30
+  royalty points on one board. Both opponents foul, so seat 1 collects
+  6+30=36 from each and nets +72. Top trips is progressive's maximum entry
+  trigger: `next_fantasyland:17`. See hand 794.
+- **hand 794** — the 17-card fantasyland hand, one hand later; `greedy` is
+  now seat 2. Its board is otherwise unremarkable (no pair top, two pair
+  middle) except a bottom flush (`6s 7s 8s 9s As`, royalty 4); one opponent
+  fouls, netting greedy +14. No stay: `next_fantasyland:null`.
+
+## ofc-27 — 2-7 Pineapple OFC
+
+```sh
+./target/release/poker-arena-ofc run --game ofc-27 --hands 2100 --seed 7 \
+  --bot builtin:greedy --bot builtin:random --bot builtin:filler \
+  --log ofc-27.log
+```
+
+The middle row is scored `DeuceToSevenLow` instead of `High`, with a
+ten-low-or-better qualifier (worst qualifier `T-9-8-7-5`); fouling is top >
+bottom *or* a non-qualifying middle, checked independently — the middle has
+no ordering relationship with its neighbors at all. Fantasyland entry is
+`KK+` on top *or* the exact `7-5-4-3-2` wheel on the middle → 14, both at
+once → 15 (a suited 7-5-4-3-2 is a flush, not a qualifying low, and doesn't
+count).
+
+- **hand 280** — seat 1 (`greedy`)'s middle is the exact wheel, `7s 5d 4s
+  3h 2s` — the best possible 2-7 middle, royalty 8 — carried by an
+  unremarkable top (no pair) and bottom (a pair of queens). Both opponents
+  foul, and by the *other* route: each one's own middle is a bare two-pair
+  or one-pair hand, which fails the ten-low-or-better qualifier outright,
+  independent of how its own top and bottom compare; seat 1 nets +28. The
+  wheel middle alone (no `KK+` top needed) earns fantasyland:
+  `next_fantasyland:14`. See hand 281.
+- **hand 281** — the fantasyland hand, one hand later; `greedy` is now seat
+  2. Its middle just barely qualifies (`2h 5c 6s 7s Td`, a ten-low — no
+  royalty, since royalties start at 9-low) while its bottom is a full house
+  (`9c 9h 9s Ac As`, royalty 6). Both opponents foul; greedy nets +24. No
+  stay (a full house bottom isn't quads, no top trips):
+  `next_fantasyland:null`.
+- **hand 1485** — a *different* fantasyland hand for `greedy` (seat 0 here,
+  dealt 14 cards from an entry earlier in the match, not shown in this
+  file), chosen to show a middle fouled purely on the non-qualifying-middle
+  rule: seat 1's middle (`8c 3h Qs 8h 9s`, a bare pair of eights) fails the
+  ten-low-or-better qualifier outright — a pair never qualifies, regardless
+  of how its top and bottom compare to each other. For contrast, the two
+  non-fouled boards both carry ordinary 2-7 middle royalties: seat 0's own
+  middle is another wheel (`2h 3c 4h 5h 7h`, royalty 8, alongside a top pair
+  of sixes worth 1 and a bottom flush worth 4), and seat 2's middle is a
+  plain 9-low (`4d 9c 3s 7d 5c`, royalty 1). Seat 0 collects the foul tax
+  from seat 1 and wins outright from seat 2 too; nets +37.
+- **hand 2084** — a clean 2-7 middle royalty with no foul on the winning
+  side: seat 2 (`greedy`)'s middle (`5d 3d 7c 2d 6d`, high card seven) is a
+  7-low, royalty 4, alongside a top pair of kings (royalty 8 — also a fresh
+  `KK+` fantasyland entry, `next_fantasyland:14`, not followed further in
+  this file). Both opponents foul this time; seat 2 collects the 6-plus-12
+  tax from each and nets +36.
 

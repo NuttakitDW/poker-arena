@@ -1,11 +1,15 @@
 # poker-arena — Architecture
 
 A Rust workspace where poker bots compete to determine which is better,
-across twenty variants, with statistically sound comparison. This document
-describes how the system is put together; [KEY_DECISIONS.md](KEY_DECISIONS.md)
-records *why* it is this way, [WIRE_PROTOCOL.md](WIRE_PROTOCOL.md) specifies
-the bot protocol, and the rules contract itself lives as module documentation
-on `crates/poker-core/src/game/state.rs` — code and contract travel together.
+across twenty betting variants and four Open Face Chinese variants, with
+statistically sound comparison. This document describes how the system is
+put together; [KEY_DECISIONS.md](KEY_DECISIONS.md) records *why* it is this
+way, [WIRE_PROTOCOL.md](WIRE_PROTOCOL.md) and
+[WIRE_PROTOCOL_OFC.md](WIRE_PROTOCOL_OFC.md) specify the two bot protocols,
+and the rules contracts themselves live as module documentation on
+`crates/poker-core/src/game/state.rs` (betting) and
+`crates/poker-core/src/ofc/state.rs` (OFC) — code and contract travel
+together.
 
 ## Workspace
 
@@ -115,6 +119,36 @@ while bot-author friction is everything — JSONL means every language reads
 a line and calls its JSON parser. `hello` carries the game id plus only
 per-match parameters; events are the single source of truth for table
 state; `act` carries a self-describing tagged decision plus the deadline.
+
+## Open Face Chinese
+
+OFC (no chips, no betting; boards, points, fantasyland) is a **second
+engine behind the same crate boundaries**, not a `GameSpec`. Each crate
+gains an `ofc` module with the same meaning its crate already had:
+
+- `poker-wire/src/ofc/` — the OFC protocol vocabulary (`Row`, `Placement`,
+  `OfcEvent` with fantasyland-aware redaction, `OfcArenaMsg`/`OfcBotMsg`,
+  report shapes), versioned independently (`ofc::PROTO_VERSION`).
+- `poker-core/src/ofc/` — the rules: data-driven `OfcSpec` registry (`ofc`,
+  `ofc-pineapple`, `ofc-progressive`, `ofc-27`), `Board`, the
+  `OfcHandState` placement state machine (table-order dealing/turns,
+  fantasyland hands dealt whole and hidden until showdown), and pairwise
+  points settlement with royalties, fouling, and fantasyland entry/stay.
+  The top row's `three_card_high` shares the frozen high encoding with
+  zero-filled tiebreaks, so foul checks are plain `HandValue` compares.
+- `poker-arena/src/ofc/` — `OfcBot`, builtins (`greedy` — the
+  foul-avoiding default sparring bot — `filler`, `random`), `OfcWireBot`
+  over the shared `transport::LineTransport`, `run_ofc_match` (per-bot
+  fantasyland carry across per-hand seat rotation, substitute/forfeit
+  fault policies, points statistics), JSON + selective hand logs, report
+  builders.
+- `poker-arena-cli` — a second binary, `poker-arena-ofc`, sharing the
+  operator conventions (`NAME@spec`, seed printing, name disambiguation).
+
+There is no duplicate-dealing mode for OFC: fantasyland state carried
+between hands makes deck reuse incoherent, so fairness comes from per-hand
+seat rotation and every hand is one observation. Hand count is fixed;
+fantasyland only changes how a hand is dealt.
 
 ## Testing spine
 

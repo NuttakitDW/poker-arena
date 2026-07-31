@@ -447,6 +447,7 @@ dependencies = [
  "criterion",
  "poker-wire",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

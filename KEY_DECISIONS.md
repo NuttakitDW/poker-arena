@@ -231,6 +231,69 @@ normalize between shapes using the standard conventions (fixed-limit:
 small bet = big blind, big bet = 2×; stud defaults: ante = small bet / 5,
 bring-in = small bet / 2).
 
+## Open Face Chinese
+
+**OFC is a second engine, not a `GameSpec`.** OFC has no blinds, no chips,
+no betting rounds and no pots — forcing it through the betting engine's
+"streets + betting structure + showdown" shape would have bent both. It
+gets its own data-driven spec (`poker_core::ofc`), its own state machine,
+and its own binary (`poker-arena-ofc`), while the betting arena's spec,
+wire bytes and CLI stay frozen. The pieces that *are* shared are shared for
+real, not by analogy: `Card`, `HandValue`, the JSON-lines framing, the
+deck/RNG, `RateStats`, and the byte-stream transport (extracted from
+`WireBot` into `LineTransport<In>` — protocol logic stayed put, proven
+unchanged by the suite plus a byte-identical transcript regeneration).
+
+**Modules, not new crates.** `poker_wire::ofc`, `poker_core::ofc`,
+`poker_arena::ofc`, and a second `[[bin]]` in the cli crate. The crate
+boundaries mean "vocabulary / rules / competition / shell", and those
+meanings apply to OFC unchanged; four more crates would have duplicated the
+boundary without adding one. A bot author still depends on `poker-wire`
+alone, whichever protocol they speak.
+
+**A separate wire protocol, versioned independently.** Same framing, same
+handshake shape, same operator-assigned identity; different messages
+(`ofc::PROTO_VERSION`, `WIRE_PROTOCOL_OFC.md`). One protocol carrying both
+games would have made every betting field optional-and-meaningless for OFC
+and vice versa.
+
+**Points are the canonical unit, scored pairwise.** 1 per row, +3 scoop,
+royalties always count, foul pays 6 + opponent royalties (both-fouled
+washes), everyone-pays-everyone in multiway. There is no stake size to
+normalize by, so reports carry raw points and points/hand ± CI, one
+observation per hand.
+
+**Rules follow one source, seat caps follow the card math.** All four
+variants take their royalty schedules, foul rules, and fantasyland
+entry/stay conditions from SWC's rule sheets (one consistent dialect rather
+than a mix); the operator-chosen seat caps are card-exact — classic OFC
+seats 4 (4 × 13 = 52), the pineapple family seats 3 (3 × 17 = 51) — so the
+deck can never run out mid-hand and no reshuffle rule is needed.
+
+**Fantasyland is per-bot state and never alters the hand count.** It
+follows the bot through seat rotation (earned in one seat, played wherever
+the next hand puts you), changes only how that hand is dealt, and is why
+**OFC has no duplicate-dealing mode**: replaying a deck under rotated
+seating is incoherent when the card consumption pattern itself depends on
+who is in fantasyland — which depends on how earlier hands were played.
+Fairness comes from per-hand seat rotation instead; every hand is one
+observation.
+
+**The top row shares the frozen high encoding, zero-filled.** A 3-card
+value is the 5-card encoding with its unused tiebreak nibbles at zero, so
+the top-vs-middle foul test is a plain `HandValue` comparison and equal-
+through-available-cards correctly reads as "not fouled". No cross-length
+comparison rule to keep in sync with the evaluators.
+
+**`builtin:greedy` is the default sparring bot.** Exact best-subset
+placement for fantasyland (provably foul-free for high middles); a one-ply
+candidate search elsewhere, with foul avoidance as a hard preference above
+row strength (the constant's dominance argument is documented at its
+definition) and royalty chasing beneath that. It exists so a new bot has an
+opponent that punishes fouling from day one; `filler` (the fault
+substitution rule as a bot) is the deterministic floor, `random` the
+chaos baseline.
+
 ## Conventions
 
 **Singular file names** (`card.rs`, `event.rs`, `pot.rs`). Project-wide,

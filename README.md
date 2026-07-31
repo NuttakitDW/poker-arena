@@ -3,7 +3,8 @@
 A place for poker bots to compete to see which is better — a Rust library and
 CLI supporting multiple poker variants, with statistically sound comparison
 (seeded reproducible dealing, duplicate-deal variance reduction, 95%
-confidence intervals).
+confidence intervals). A second binary, `poker-arena-ofc`, runs Open Face
+Chinese competitions over its own points-based engine and wire protocol.
 
 See [DESIGN.md](DESIGN.md) for the architecture, and
 [KEY_DECISIONS.md](KEY_DECISIONS.md) for the design decisions and the
@@ -81,6 +82,30 @@ no identity of their own and are told their assigned name after joining. Per-act
 enforced server-side (`--timeout-ms`, 0 = none); timeouts, disconnects, and
 malformed replies are faults handled by the configured fault policy.
 
+## Open Face Chinese (`poker-arena-ofc`)
+
+OFC is a different kind of poker — no chips, no betting, cards placed into
+a three-row board, hands scored in points pairwise (rows, scoops,
+royalties, fouls) — so it gets its own engine, its own wire protocol
+([WIRE_PROTOCOL_OFC.md](WIRE_PROTOCOL_OFC.md),
+[examples/ofc_bot.py](examples/ofc_bot.py)), and its own binary with the
+same operator model (`NAME@spec` bots, seeds always printed, JSON reports
+and progress standings, selective hand logs):
+
+```sh
+cargo run --release -p poker-arena-cli --bin poker-arena-ofc -- run \
+  --game ofc-pineapple \
+  --bot builtin:greedy --bot builtin:random \
+  --hands 10000 --seed 42
+```
+
+Four variants: `ofc` (classic, 2–4 seats), `ofc-pineapple`,
+`ofc-progressive`, and `ofc-27` (2-7 middle), all 2–3 seats. Fantasyland is
+tracked per bot across the seat rotation and never changes the hand count.
+`builtin:greedy` is the default sparring partner — it actively avoids
+fouling — with `builtin:filler` as the deterministic floor and
+`builtin:random` as the chaos baseline.
+
 ## Writing a bot (in-process)
 
 Implement the `Bot` trait from the `poker-arena` crate:
@@ -123,11 +148,12 @@ JSON lines (TCP or stdio) — see the section above.
 
 ## Status
 
-Feature-complete for its current scope: twenty variants across four game
-families over one data-driven rules engine, in-process and wire bots with
-deadlines and fault policies, duplicate-deal variance reduction with
-Student-t confidence intervals, behavioral profiling, deterministic replay
-from a seed, and JSON-lines hand histories.
+Feature-complete for its current scope: twenty betting variants across
+four game families over one data-driven rules engine, plus four Open Face
+Chinese variants over a second points-based engine and binary; in-process
+and wire bots with deadlines and fault policies, duplicate-deal variance
+reduction with Student-t confidence intervals, behavioral profiling,
+deterministic replay from a seed, and JSON-lines hand histories.
 
 All engine rules are covered by scripted-hand fixtures and seeded property
-tests (chip conservation, legality soundness, determinism).
+tests (chip/point conservation, legality soundness, determinism).
