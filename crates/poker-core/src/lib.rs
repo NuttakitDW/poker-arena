@@ -9,10 +9,16 @@
 //! the types the engine computes with are literally the types that go on the
 //! wire. The competition machinery (bots, match running, stats) lives in
 //! `poker-arena`.
+//!
+//! [`game`] is the betting engine: variants that post blinds, bet, and split
+//! pots. [`ofc`] is a second, independent engine for the Open Face Chinese
+//! variants, which place cards into rows and settle in points; the two share
+//! only [`card`] and [`eval`].
 
 pub mod deck;
 pub mod eval;
 pub mod game;
+pub mod ofc;
 pub mod rng;
 
 /// Cards, ranks, and suits (defined in [`poker_wire::card`]), plus the

@@ -30,6 +30,41 @@ pub(super) fn sixes_or_better(cards: &[Card]) -> Option<HandValue> {
     qualifies.then_some(best)
 }
 
+/// Rank exactly three cards (OFC's top row) in the same frozen encoding as
+/// [`rank_five`], with the unused tiebreak nibbles zero. Only HighCard,
+/// OnePair and Trips are reachable: a three-card row has no straights and no
+/// flushes. Panics unless given exactly three cards (engine bug, not user
+/// input).
+///
+/// The zero fill is load-bearing, not incidental. Zero is the lowest possible
+/// nibble, so a five-card value of the same class whose leading tiebreaks
+/// match a three-card value always compares greater or equal to it — and
+/// equal exactly when the two rows tie through every rank the shorter hand
+/// has. That makes OFC's top-vs-middle foul test a plain `HandValue`
+/// comparison with the tie semantics OFC wants (equal rows do not foul),
+/// with no separate cross-length comparison rule to keep in sync.
+pub(super) fn three_card(cards: &[Card]) -> HandValue {
+    assert_eq!(cards.len(), 3, "three_card requires exactly 3 cards");
+    let mut ranks: [u8; 3] = [
+        cards[0].rank().index(),
+        cards[1].rank().index(),
+        cards[2].rank().index(),
+    ];
+    ranks.sort_unstable_by(|a, b| b.cmp(a));
+
+    let (class, tiebreak): (HandClass, [u8; 5]) = if ranks[0] == ranks[2] {
+        (HandClass::Trips, [ranks[0], 0, 0, 0, 0])
+    } else if ranks[0] == ranks[1] {
+        (HandClass::OnePair, [ranks[0], ranks[2], 0, 0, 0])
+    } else if ranks[1] == ranks[2] {
+        (HandClass::OnePair, [ranks[1], ranks[0], 0, 0, 0])
+    } else {
+        (HandClass::HighCard, [ranks[0], ranks[1], ranks[2], 0, 0])
+    };
+
+    encode(class, tiebreak)
+}
+
 /// Rank exactly five cards. Exposed within the eval module for the lowball
 /// evaluators (2-7 reuses the high ordering).
 pub(super) fn rank_five(cards: [Card; 5]) -> HandValue {

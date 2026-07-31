@@ -52,13 +52,24 @@
 //! return `None`. Qualification is monotone in the encoding, so the best
 //! hand qualifies exactly when some subset does.
 //!
+//! *Three-card high* (`three_card_high`, OFC's top row): the ordinary high
+//! encoding read on exactly three cards, so only HighCard (three ranks
+//! descending), OnePair (pair rank, then the kicker) and Trips (trip rank)
+//! are reachable — a three-card row has no straights and no flushes. The
+//! unused trailing tiebreak nibbles are zero, and that is load-bearing:
+//! because zero is the lowest possible nibble, a five-card value of the same
+//! class whose leading tiebreaks match always compares greater or equal to
+//! the three-card value, and equal exactly when the rows tie through every
+//! rank the shorter hand has. OFC's top-vs-middle foul test is therefore a
+//! plain `HandValue` comparison with the tie semantics the game wants.
+//!
 //! ## N-card inputs
 //!
 //! `high`, `ace_to_five_low`, `deuce_to_seven_low`, `eight_or_better`, and
 //! `sixes_or_better` accept 5–7 cards and evaluate the best 5-card subset
 //! (C(7,5)=21 brute force — plenty fast for arena use). `badugi` and
 //! `badugi_ace_high` accept 1–5 cards (4 for badugi proper, 5 for the
-//! badacey/badeucy split games).
+//! badacey/badeucy split games). `three_card_high` takes exactly 3.
 //!
 //! [`Rank::index`]: crate::card::Rank::index
 
@@ -97,6 +108,13 @@ pub enum EvalKind {
 /// Best high hand from 5–7 cards.
 pub fn high(cards: &[Card]) -> HandValue {
     high::evaluate(cards)
+}
+
+/// High value of exactly 3 cards (OFC's top row), in the same encoding as
+/// [`high`] with the unused tiebreak nibbles zero — see the module docs for
+/// why that makes three- and five-card values directly comparable.
+pub fn three_card_high(cards: &[Card]) -> HandValue {
+    high::three_card(cards)
 }
 
 /// Best A-5 lowball hand (aces low, straights/flushes ignored) from 5–7 cards.
