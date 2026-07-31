@@ -97,7 +97,9 @@ Sent once, immediately after connection.
 family:
 
 - Blind games (hold'em, Omaha, draw): `{ kind: "blinds", small_blind: u64,
-  big_blind: u64 }`.
+  big_blind: u64, ante: u64 }` — `ante` is the per-player ante posted
+  before the deal, `0` when the game is played without one. Antes join the
+  pot but never count toward street commitments.
 - Stud games: `{ kind: "stud", ante: u64, bring_in: u64, small_bet: u64,
   big_bet: u64 }`.
 
