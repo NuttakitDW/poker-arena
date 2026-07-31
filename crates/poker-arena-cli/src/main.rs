@@ -134,9 +134,14 @@ struct RunArgs {
     #[arg(long, default_value_t = 0)]
     progress_every: u64,
 
+    /// Emit progress at most every S seconds (fractional ok; 0 = off).
+    /// Combines with --progress-every: either trigger emits.
+    #[arg(long, default_value_t = 0.0)]
+    progress_secs: f64,
+
     /// Emit progress as JSON lines (interim standings incl. per-bot rate
-    /// and CI) on stderr instead of the human progress line. Requires
-    /// --progress-every > 0 to set the cadence.
+    /// and CI) on stderr instead of the human progress line. Requires a
+    /// cadence: --progress-every and/or --progress-secs.
     #[arg(long, default_value_t = false)]
     progress_json: bool,
 
@@ -471,17 +476,29 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
     };
     let sink: Option<&mut dyn EventSink> = log_writer.as_mut().map(|l| l as &mut dyn EventSink);
 
-    if args.progress_json && args.progress_every == 0 {
-        return Err("--progress-json requires --progress-every > 0 for its cadence".to_string());
+    if args.progress_secs < 0.0 || !args.progress_secs.is_finite() {
+        return Err("--progress-secs must be a finite number >= 0".to_string());
+    }
+    let cadence_set = args.progress_every > 0 || args.progress_secs > 0.0;
+    if args.progress_json && !cadence_set {
+        return Err(
+            "--progress-json requires a cadence: --progress-every and/or --progress-secs"
+                .to_string(),
+        );
     }
     let progress_every = args.progress_every;
+    let progress_secs = args.progress_secs;
     let progress_json = args.progress_json;
+    let mut last_emit = std::time::Instant::now();
     let mut report_progress = move |p: &Progress<'_>| {
-        if progress_every == 0 || !p.decks_done.is_multiple_of(progress_every) {
+        let deck_due = progress_every > 0 && p.decks_done.is_multiple_of(progress_every);
+        let time_due = progress_secs > 0.0 && last_emit.elapsed().as_secs_f64() >= progress_secs;
+        if !deck_due && !time_due {
             return;
         }
+        last_emit = std::time::Instant::now();
         if progress_json {
-            let line = poker_arena::ProgressReport::new(p);
+            let line = poker_arena::progress_report(p);
             eprintln!(
                 "{}",
                 serde_json::to_string(&line).expect("progress serialization is infallible")
@@ -490,7 +507,7 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
             eprintln!("{} decks, {} hands played", p.decks_done, p.hands_done);
         }
     };
-    let on_progress: Option<&mut dyn FnMut(&Progress<'_>)> = if args.progress_every > 0 {
+    let on_progress: Option<&mut dyn FnMut(&Progress<'_>)> = if cadence_set {
         Some(&mut report_progress)
     } else {
         None
@@ -504,7 +521,7 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
             print_report(&result);
         }
         OutputArg::Json => {
-            let report = poker_arena::MatchReport::new(&config, seed, &result);
+            let report = poker_arena::match_report(&config, seed, &result);
             println!(
                 "{}",
                 serde_json::to_string(&report).expect("report serialization is infallible")

@@ -42,6 +42,7 @@ pub mod event;
 pub mod framing;
 pub mod game;
 pub mod message;
+pub mod report;
 pub mod value;
 
 pub use action::{Action, BetBounds, Chips, DrawBounds, LegalActions, Seat};

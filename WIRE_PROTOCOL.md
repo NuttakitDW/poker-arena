@@ -397,6 +397,43 @@ on getting away with illegal actions will show up in the fault count even
 under check-fold substitution. Bots should treat every fault as a bug to
 fix, not a recoverable strategy.
 
+## Match result & progress documents
+
+Not bot messages — these are the JSON documents the **CLI** emits for
+programmatic consumers (a website ranking bots, a sweep script). Their Rust
+definitions live in `poker-wire`'s `report` module (`Serialize` +
+`Deserialize`, so a Rust consumer parses them typed with the wire crate
+alone); `schema_version` bumps on any breaking shape change.
+
+### Match report (`--output json`, stdout, once)
+
+```json
+{"schema_version":1,"game_id":"27td-fl","seed":9,"dealing":"duplicate","decks":50,"hands":100,"seat_count":2,"starting_stack":10000,"stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"fixed-limit","raise_cap":4},"fault_policy":"check-fold","timeout_ms":1000,"rate_unit":"big-blind","forfeited_by":null,"bots":[{"name":"random","hands":100,"total_chips":650,"rate_per100_mean":6.5,"rate_per100_ci95":80.71,"observations":50,"faults":0,"behavior":{"vpip":0.63,"pfr":0.36,"af":1.41,"wtsd":0.11,"wsd":0.47,"fold_rate":0.69}}]}
+```
+
+- `rate_per100_mean` / `rate_per100_ci95`: winnings per 100 hands in
+  `rate_unit`s (`"big-blind"`, or `"small-bet"` for stud); the CI is a
+  two-sided 95% Student-t half-width, `null` under two observations.
+- `observations`: the sample size behind the interval — hands in seeded
+  mode, duplicate rotation-sets in duplicate mode.
+- `behavior.af` is `null` when infinite (no calls but some aggression).
+- `seed` reproduces the match exactly; `forfeited_by` names the offender
+  when a forfeit ended it early (exit code 2).
+
+### Progress lines (`--progress-json`, stderr, repeating)
+
+Interim standings at the configured cadence (`--progress-every N` decks
+and/or `--progress-secs S`), one JSON object per line — a live leaderboard
+whose intervals tighten as evidence accumulates:
+
+```json
+{"decks_done":100,"hands_done":200,"bots":[{"name":"random","total_chips":-4550,"rate_per100_mean":-22.75,"rate_per100_ci95":53.12,"observations":100,"faults":0}]}
+```
+
+Field meanings match the final report. Per-hand detail is a separate
+stream: `--log FILE` writes the unredacted event log as JSON lines (the
+`{"hand":N,"ev":{...}}` shape used throughout `transcripts/`).
+
 ## Example transcript
 
 A complete heads-up no-limit hold'em hand from one bot's point of view

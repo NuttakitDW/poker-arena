@@ -1,15 +1,12 @@
-//! Machine-readable match results.
+//! Builders for the machine-readable match documents.
 //!
-//! [`MatchReport`] is the JSON document a website or script consumes
-//! instead of scraping the CLI's human tables (`--output json`). It is a
-//! self-contained summary: everything needed to rank bots, display
-//! confidence, and reproduce the match (the seed) — while per-hand detail
-//! stays in the hand log, which is already JSON lines.
-//!
-//! Field naming is snake_case, matching the wire protocol's conventions.
-//! `schema_version` bumps on any breaking shape change.
+//! The document *shapes* live in [`poker_wire::report`] (the consumer-facing
+//! vocabulary, `Serialize` + `Deserialize`); this module knows how to fill
+//! them from a finished [`MatchResult`] or an in-flight [`Progress`] tick.
 
-use serde::Serialize;
+pub use poker_wire::report::{
+    BehaviorReport, BotProgress, BotReport, MatchReport, ProgressReport, REPORT_SCHEMA_VERSION,
+};
 
 use poker_wire::game::Stakes;
 
@@ -17,163 +14,84 @@ use crate::behavior::BehaviorStats;
 use crate::config::{DealingMode, FaultPolicy, MatchConfig};
 use crate::runner::{MatchResult, Progress};
 
-/// Breaking-change counter for the report shape.
-pub const REPORT_SCHEMA_VERSION: u32 = 1;
-
-/// The complete machine-readable result of one match.
-#[derive(Debug, Clone, Serialize)]
-pub struct MatchReport {
-    pub schema_version: u32,
-    pub game_id: String,
-    /// The seed that reproduces this match exactly.
-    pub seed: u64,
-    pub dealing: &'static str,
-    pub decks: u64,
-    pub hands: u64,
-    pub seat_count: usize,
-    pub starting_stack: u64,
-    pub stakes: Stakes,
-    pub betting: poker_wire::game::BettingKind,
-    pub fault_policy: &'static str,
-    pub timeout_ms: Option<u64>,
-    /// The unit `rate_per100_*` is measured in: `"big-blind"` for blind
-    /// games, `"small-bet"` for stud.
-    pub rate_unit: &'static str,
-    /// Bot name, when the match ended early by forfeit.
-    pub forfeited_by: Option<String>,
-    /// In the order bots were seated on the command line.
-    pub bots: Vec<BotReport>,
-}
-
-/// One bot's results.
-#[derive(Debug, Clone, Serialize)]
-pub struct BotReport {
-    pub name: String,
-    pub hands: u64,
-    pub total_chips: i64,
-    /// Mean winnings per 100 hands, in `rate_unit`s.
-    pub rate_per100_mean: f64,
-    /// Two-sided 95% Student-t half-width of the mean, same scale;
-    /// `null` with fewer than two observations.
-    pub rate_per100_ci95: Option<f64>,
-    /// Statistical observations behind the interval (hands in seeded mode,
-    /// duplicate rotation-sets in duplicate mode).
-    pub observations: u64,
-    pub faults: u64,
-    pub behavior: BehaviorReport,
-}
-
-/// Behavioral profile, all rates in `[0, 1]`.
-#[derive(Debug, Clone, Serialize)]
-pub struct BehaviorReport {
-    pub vpip: f64,
-    pub pfr: f64,
-    /// Aggression factor (bets+raises)/calls; `null` when calls are zero
-    /// but aggression isn't (JSON has no infinity).
-    pub af: Option<f64>,
-    pub wtsd: f64,
-    pub wsd: f64,
-    pub fold_rate: f64,
-}
-
-impl MatchReport {
-    pub fn new(config: &MatchConfig, seed: u64, result: &MatchResult) -> MatchReport {
-        MatchReport {
-            schema_version: REPORT_SCHEMA_VERSION,
-            game_id: config.spec.id.to_string(),
-            seed,
-            dealing: match config.dealing {
-                DealingMode::Seeded => "seeded",
-                DealingMode::Duplicate => "duplicate",
-            },
-            decks: result.decks_played,
-            hands: result.hands_played,
-            seat_count: result.outcomes.len(),
-            starting_stack: config.starting_stack,
-            stakes: config.spec.stakes,
-            betting: config.spec.betting,
-            fault_policy: match config.fault_policy {
-                FaultPolicy::CheckFold => "check-fold",
-                FaultPolicy::Forfeit => "forfeit",
-            },
-            timeout_ms: config.timeout.map(|d| d.as_millis() as u64),
-            rate_unit: match config.spec.stakes {
-                Stakes::Blinds { .. } => "big-blind",
-                Stakes::Stud { .. } => "small-bet",
-            },
-            forfeited_by: result.forfeited_by.map(|b| result.outcomes[b].name.clone()),
-            bots: result
-                .outcomes
-                .iter()
-                .map(|o| BotReport {
-                    name: o.name.clone(),
-                    hands: result.hands_played,
-                    total_chips: o.total_net_chips,
-                    rate_per100_mean: o.stats.mean() * 100.0,
-                    rate_per100_ci95: o.stats.ci95_half_width().map(|hw| hw * 100.0),
-                    observations: o.stats.count(),
-                    faults: o.faults,
-                    behavior: BehaviorReport::from(&o.behavior),
-                })
-                .collect(),
+/// Build the final report for a completed match.
+pub fn match_report(config: &MatchConfig, seed: u64, result: &MatchResult) -> MatchReport {
+    MatchReport {
+        schema_version: REPORT_SCHEMA_VERSION,
+        game_id: config.spec.id.to_string(),
+        seed,
+        dealing: match config.dealing {
+            DealingMode::Seeded => "seeded",
+            DealingMode::Duplicate => "duplicate",
         }
+        .to_string(),
+        decks: result.decks_played,
+        hands: result.hands_played,
+        seat_count: result.outcomes.len(),
+        starting_stack: config.starting_stack,
+        stakes: config.spec.stakes,
+        betting: config.spec.betting,
+        fault_policy: match config.fault_policy {
+            FaultPolicy::CheckFold => "check-fold",
+            FaultPolicy::Forfeit => "forfeit",
+        }
+        .to_string(),
+        timeout_ms: config.timeout.map(|d| d.as_millis() as u64),
+        rate_unit: rate_unit_name(config.spec.stakes).to_string(),
+        forfeited_by: result.forfeited_by.map(|b| result.outcomes[b].name.clone()),
+        bots: result
+            .outcomes
+            .iter()
+            .map(|o| BotReport {
+                name: o.name.clone(),
+                hands: result.hands_played,
+                total_chips: o.total_net_chips,
+                rate_per100_mean: o.stats.mean() * 100.0,
+                rate_per100_ci95: o.stats.ci95_half_width().map(|hw| hw * 100.0),
+                observations: o.stats.count(),
+                faults: o.faults,
+                behavior: behavior_report(&o.behavior),
+            })
+            .collect(),
     }
 }
 
-/// One interim-standings line for `--progress-json`: emitted as JSON lines
-/// during a match so a consumer can render a live leaderboard with
-/// tightening confidence intervals. Same field conventions as
-/// [`MatchReport`].
-#[derive(Debug, Clone, Serialize)]
-pub struct ProgressReport {
-    pub decks_done: u64,
-    pub hands_done: u64,
-    pub bots: Vec<BotProgress>,
-}
-
-/// One bot's interim standing.
-#[derive(Debug, Clone, Serialize)]
-pub struct BotProgress {
-    pub name: String,
-    pub total_chips: i64,
-    pub rate_per100_mean: f64,
-    pub rate_per100_ci95: Option<f64>,
-    pub observations: u64,
-    pub faults: u64,
-}
-
-impl ProgressReport {
-    pub fn new(progress: &Progress<'_>) -> ProgressReport {
-        ProgressReport {
-            decks_done: progress.decks_done,
-            hands_done: progress.hands_done,
-            bots: progress
-                .standings
-                .iter()
-                .map(|s| BotProgress {
-                    name: s.name.clone(),
-                    total_chips: s.total_chips,
-                    rate_per100_mean: s.mean * 100.0,
-                    rate_per100_ci95: s.ci95.map(|hw| hw * 100.0),
-                    observations: s.observations,
-                    faults: s.faults,
-                })
-                .collect(),
-        }
+/// Build one interim-standings line from a [`Progress`] tick.
+pub fn progress_report(progress: &Progress<'_>) -> ProgressReport {
+    ProgressReport {
+        decks_done: progress.decks_done,
+        hands_done: progress.hands_done,
+        bots: progress
+            .standings
+            .iter()
+            .map(|s| BotProgress {
+                name: s.name.clone(),
+                total_chips: s.total_chips,
+                rate_per100_mean: s.mean * 100.0,
+                rate_per100_ci95: s.ci95.map(|hw| hw * 100.0),
+                observations: s.observations,
+                faults: s.faults,
+            })
+            .collect(),
     }
 }
 
-impl From<&BehaviorStats> for BehaviorReport {
-    fn from(b: &BehaviorStats) -> BehaviorReport {
-        let af = b.af();
-        BehaviorReport {
-            vpip: b.vpip(),
-            pfr: b.pfr(),
-            af: af.is_finite().then_some(af),
-            wtsd: b.wtsd(),
-            wsd: b.wsd(),
-            fold_rate: b.fold_rate(),
-        }
+fn behavior_report(b: &BehaviorStats) -> BehaviorReport {
+    let af = b.af();
+    BehaviorReport {
+        vpip: b.vpip(),
+        pfr: b.pfr(),
+        af: af.is_finite().then_some(af),
+        wtsd: b.wtsd(),
+        wsd: b.wsd(),
+        fold_rate: b.fold_rate(),
+    }
+}
+
+fn rate_unit_name(stakes: Stakes) -> &'static str {
+    match stakes {
+        Stakes::Blinds { .. } => "big-blind",
+        Stakes::Stud { .. } => "small-bet",
     }
 }
 
@@ -204,7 +122,7 @@ mod tests {
             Box::new(Random::new("random", 3)),
         ];
         let result = run_match(&config, &mut bots, None, None).unwrap();
-        let report = MatchReport::new(&config, config.seed, &result);
+        let report = match_report(&config, config.seed, &result);
 
         let json = serde_json::to_value(&report).unwrap();
         assert_eq!(json["schema_version"], 1);
@@ -231,5 +149,9 @@ mod tests {
             let vpip = b["behavior"]["vpip"].as_f64().unwrap();
             assert!((0.0..=1.0).contains(&vpip));
         }
+        // The wire shape is the parse contract: round-trip through it.
+        let text = serde_json::to_string(&report).unwrap();
+        let parsed: MatchReport = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed, report);
     }
 }
