@@ -371,9 +371,9 @@ fn omaha_half_uses_exactly_two() {
     check_down(&mut hand);
 
     let (hi0, lo0) = shown(&hand, 0);
-    assert_eq!(hi0, Some(eval::high(&cards("Ah 9c Kh Qh 8h"))));
+    assert_eq!(lo0, Some(eval::high(&cards("Ah 9c Kh Qh 8h"))));
     assert_eq!(
-        hi0.unwrap().high_class(),
+        lo0.unwrap().high_class(),
         HandClass::HighCard,
         "one hole heart plus three board hearts is one short of a flush"
     );
@@ -390,15 +390,15 @@ fn omaha_half_uses_exactly_two() {
             &cards("Ah 4d 2c 5s 9c"),
             &cards(board),
         ),
-        hi0
+        lo0
     );
 
     assert_eq!(
-        lo0,
+        hi0,
         Some(eval::high(&cards("Ah 4d 2c 5s 9c"))),
         "the in-hand half uses all five hole cards and ignores the board"
     );
-    assert_eq!(lo0.unwrap().high_class(), HandClass::HighCard);
+    assert_eq!(hi0.unwrap().high_class(), HandClass::HighCard);
 
     assert_distinct_live_cards(&hand);
     assert_conserved(&hand);
@@ -421,7 +421,7 @@ fn in_hand_half_ignores_the_board() {
     let (hi1, lo1) = shown(&hand, 1);
 
     assert_eq!(
-        hi0,
+        lo0,
         eval::best_with_usage(
             EvalKind::High,
             HoleUsage::ExactlyTwo,
@@ -430,7 +430,7 @@ fn in_hand_half_ignores_the_board() {
         )
     );
     assert_eq!(
-        hi1,
+        lo1,
         eval::best_with_usage(
             EvalKind::High,
             HoleUsage::ExactlyTwo,
@@ -439,24 +439,24 @@ fn in_hand_half_ignores_the_board() {
         )
     );
     assert!(
-        hi1 > hi0,
+        lo1 > lo0,
         "seat 1's board-connected flush beats seat 0's bare pair of deuces"
     );
 
-    assert_eq!(lo0, Some(eval::high(&cards("2c 2d 2h 2s 9c"))));
-    assert_eq!(lo1, Some(eval::high(&cards("Ah Kh 5s 6d 7c"))));
-    assert_eq!(lo0.unwrap().high_class(), HandClass::Quads);
-    assert_eq!(lo1.unwrap().high_class(), HandClass::HighCard);
+    assert_eq!(hi0, Some(eval::high(&cards("2c 2d 2h 2s 9c"))));
+    assert_eq!(hi1, Some(eval::high(&cards("Ah Kh 5s 6d 7c"))));
+    assert_eq!(hi0.unwrap().high_class(), HandClass::Quads);
+    assert_eq!(hi1.unwrap().high_class(), HandClass::HighCard);
     assert!(
-        lo0 > lo1,
+        hi0 > hi1,
         "seat 0's quads beat seat 1's ace-high once the board is ignored"
     );
 
     assert_eq!(
         awards(&hand),
         vec![
-            awarded(0, PotSide::Hi, &[(1, 100)]),
-            awarded(0, PotSide::Lo, &[(0, 100)]),
+            awarded(0, PotSide::Hi, &[(0, 100)]),
+            awarded(0, PotSide::Lo, &[(1, 100)]),
         ]
     );
     assert_eq!(hand.settlement().unwrap().nets, vec![0, 0]);
@@ -491,17 +491,17 @@ fn drawmaha27_in_hand_half_is_deuce_seven() {
     assert_eq!(hand.hole_cards(0), &cards("7d 5c 4h 3s 2c")[..]);
     assert_eq!(hand.hole_cards(1), &cards("Ks Kd 9h 8s 6c")[..]);
 
-    let (_, lo0) = shown(&hand, 0);
-    let (_, lo1) = shown(&hand, 1);
+    let (hi0, _) = shown(&hand, 0);
+    let (hi1, _) = shown(&hand, 1);
     assert_eq!(
-        lo0,
+        hi0,
         Some(eval::deuce_to_seven_low(&cards("7d 5c 4h 3s 2c")))
     );
     assert_eq!(
-        lo1,
+        hi1,
         Some(eval::deuce_to_seven_low(&cards("Ks Kd 9h 8s 6c")))
     );
-    assert!(lo0 > lo1, "7-5-4-3-2 beats a pair of kings at 2-7");
+    assert!(hi0 > hi1, "7-5-4-3-2 beats a pair of kings at 2-7");
 
     // A-5-4-3-2 is merely ace-high at 2-7 (aces are always high, so it is
     // not a "wheel"); the 7-5-4-3-2 nuts crush it.
@@ -512,8 +512,8 @@ fn drawmaha27_in_hand_half_is_deuce_seven() {
     );
 
     assert!(
-        awards(&hand).contains(&awarded(0, PotSide::Lo, &[(0, 100)])),
-        "seat 0's 2-7 nuts must take the hand half: {:?}",
+        awards(&hand).contains(&awarded(0, PotSide::Hi, &[(0, 100)])),
+        "seat 0's 2-7 nuts must take the hand (hi) half: {:?}",
         awards(&hand)
     );
     assert_distinct_live_cards(&hand);
@@ -536,29 +536,29 @@ fn drawmaha_dugi_in_hand_half_is_badugi() {
     );
     check_down(&mut hand);
 
-    let (_, lo0) = shown(&hand, 0);
-    let (_, lo1) = shown(&hand, 1);
+    let (hi0, _) = shown(&hand, 0);
+    let (hi1, _) = shown(&hand, 1);
 
     assert_eq!(
-        lo0,
+        hi0,
         Some(eval::badugi(&cards("As 3d 4h 5c"))),
         "the best four-of-five badugi drops the deuce, not the ace"
     );
-    assert_ne!(lo0, Some(eval::badugi(&cards("2s 3d 4h 5c"))));
-    assert_eq!(lo0.unwrap().0 >> 20, 4, "a four-card badugi");
+    assert_ne!(hi0, Some(eval::badugi(&cards("2s 3d 4h 5c"))));
+    assert_eq!(hi0.unwrap().0 >> 20, 4, "a four-card badugi");
 
     assert_eq!(
-        lo1,
+        hi1,
         Some(eval::badugi(&cards("Kd 9c"))),
         "four same-rank kings force a two-card badugi"
     );
     assert_eq!(
-        lo1.unwrap().0 >> 20,
+        hi1.unwrap().0 >> 20,
         2,
         "a rainbow-poor hand, shorter badugi"
     );
 
-    assert!(lo0 > lo1, "the four-card badugi beats the two-card one");
+    assert!(hi0 > hi1, "the four-card badugi beats the two-card one");
     assert_distinct_live_cards(&hand);
     assert_conserved(&hand);
 }
@@ -580,18 +580,18 @@ fn both_halves_always_split_or_one_seat_scoops() {
     let (hi0, lo0) = shown(&hand, 0);
     let (hi1, lo1) = shown(&hand, 1);
     assert_eq!(
-        hi0,
+        lo0,
         Some(eval::high(&cards("Ah Ac Kc Qs Jh"))),
         "seat 0's pocket aces plus the board's three best kickers"
     );
-    assert_eq!(lo0, Some(eval::high(&cards("Ah Ac 2s 2d 2h"))));
-    assert_eq!(lo0.unwrap().high_class(), HandClass::FullHouse);
+    assert_eq!(hi0, Some(eval::high(&cards("Ah Ac 2s 2d 2h"))));
+    assert_eq!(hi0.unwrap().high_class(), HandClass::FullHouse);
     assert!(
-        hi0 > hi1,
+        lo0 > lo1,
         "seat 0's ace pair beats anything seat 1 can make"
     );
     assert!(
-        lo0 > lo1,
+        hi0 > hi1,
         "seat 0's full house beats anything seat 1 can make"
     );
 
@@ -607,7 +607,7 @@ fn both_halves_always_split_or_one_seat_scoops() {
     assert_conserved(&hand);
 
     // Split with an odd pot: three seats calling an odd big blind down to
-    // showdown make an odd-chip pot; the omaha (hi) half gets the extra
+    // showdown make an odd-chip pot; the in-hand (hi) half gets the extra
     // chip. Seat 0/1 reuse the reversed-strength pair from test 4; seat 2 is
     // a spare seat, weaker than both on either half.
     const ODD_STAKES: Stakes = Stakes::Blinds {
@@ -628,12 +628,12 @@ fn both_halves_always_split_or_one_seat_scoops() {
     assert_eq!(
         awards(&hand),
         vec![
-            awarded(0, PotSide::Hi, &[(1, 152)]),
-            awarded(0, PotSide::Lo, &[(0, 151)]),
+            awarded(0, PotSide::Hi, &[(0, 152)]),
+            awarded(0, PotSide::Lo, &[(1, 151)]),
         ],
-        "the odd chip (303 / 2 = 151 r 1) goes to the omaha (hi) half"
+        "the odd chip (303 / 2 = 151 r 1) goes to the in-hand (hi) half"
     );
-    assert_eq!(hand.settlement().unwrap().nets, vec![50, 51, -101]);
+    assert_eq!(hand.settlement().unwrap().nets, vec![51, 50, -101]);
     assert_distinct_live_cards(&hand);
     assert_conserved(&hand);
 }

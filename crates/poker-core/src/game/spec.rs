@@ -336,20 +336,21 @@ impl GameSpec {
         }
     }
 
-    /// Badacey: five-card triple draw, split between the best badugi (aces
-    /// low) and the best A-5 low. Both halves always exist, so the pot
-    /// always splits.
+    /// Badacey: five-card triple draw, split between the best A-5 low (the
+    /// hi slot — the five-card hand side takes the odd chip) and the best
+    /// badugi, aces low in both halves. Both halves always exist, so the
+    /// pot always splits.
     pub fn badacey_fl(stakes: Stakes) -> GameSpec {
         GameSpec {
             id: "badacey-fl",
             display_name: "Badacey",
             showdown: ShowdownSpec {
                 hi: ShowdownSide {
-                    kind: EvalKind::Badugi,
+                    kind: EvalKind::AceToFiveLow,
                     usage: HoleUsage::AllOwn,
                 },
                 lo: Some(ShowdownSide {
-                    kind: EvalKind::AceToFiveLow,
+                    kind: EvalKind::Badugi,
                     usage: HoleUsage::AllOwn,
                 }),
             },
@@ -357,20 +358,21 @@ impl GameSpec {
         }
     }
 
-    /// Badeucy: five-card triple draw, split between the best ace-HIGH
-    /// badugi and the best 2-7 low (aces high in both halves). Both halves
-    /// always exist, so the pot always splits.
+    /// Badeucy: five-card triple draw, split between the best 2-7 low (the
+    /// hi slot — the five-card hand side takes the odd chip) and the best
+    /// ace-HIGH badugi; aces are high in both halves. Both halves always
+    /// exist, so the pot always splits.
     pub fn badeucy_fl(stakes: Stakes) -> GameSpec {
         GameSpec {
             id: "badeucy-fl",
             display_name: "Badeucy",
             showdown: ShowdownSpec {
                 hi: ShowdownSide {
-                    kind: EvalKind::BadugiAceHigh,
+                    kind: EvalKind::DeuceToSevenLow,
                     usage: HoleUsage::AllOwn,
                 },
                 lo: Some(ShowdownSide {
-                    kind: EvalKind::DeuceToSevenLow,
+                    kind: EvalKind::BadugiAceHigh,
                     usage: HoleUsage::AllOwn,
                 }),
             },
@@ -417,8 +419,9 @@ impl GameSpec {
     /// between the flop and turn betting rounds (the draw street itself has
     /// no betting). The pot splits between the omaha half (exactly two hole
     /// cards + three board, high) and the in-hand half — the whole five-card
-    /// hand under the variant's evaluator. Both halves always exist, so the
-    /// pot always splits; odd chip to the omaha half.
+    /// hand under the variant's evaluator. The in-hand half is the hi slot
+    /// (it takes the odd chip); the omaha half is the lo slot. Both halves
+    /// always exist, so the pot always splits.
     pub fn drawmaha_fl(stakes: Stakes) -> GameSpec {
         Self::drawmaha_base(stakes, "drawmaha-fl", "Drawmaha", EvalKind::High)
     }
@@ -476,12 +479,12 @@ impl GameSpec {
             ],
             showdown: ShowdownSpec {
                 hi: ShowdownSide {
-                    kind: EvalKind::High,
-                    usage: HoleUsage::ExactlyTwo,
-                },
-                lo: Some(ShowdownSide {
                     kind: hand_half,
                     usage: HoleUsage::AllOwn,
+                },
+                lo: Some(ShowdownSide {
+                    kind: EvalKind::High,
+                    usage: HoleUsage::ExactlyTwo,
                 }),
             },
         }
@@ -890,13 +893,13 @@ mod tests {
         let expected = [
             (
                 GameSpec::badacey_fl(BLINDS),
-                EvalKind::Badugi,
                 EvalKind::AceToFiveLow,
+                EvalKind::Badugi,
             ),
             (
                 GameSpec::badeucy_fl(BLINDS),
-                EvalKind::BadugiAceHigh,
                 EvalKind::DeuceToSevenLow,
+                EvalKind::BadugiAceHigh,
             ),
             (
                 GameSpec::archie_fl(BLINDS),

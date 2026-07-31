@@ -182,7 +182,11 @@ qualifying side scoops, and if *neither* qualifies the pot splits evenly
 among the showdown players — pot carryover was rejected as incompatible
 with per-hand scoring and i.i.d. observations. Badeucy plays aces high in
 *both* halves (nut badugi 5-4-3-2 rainbow), badacey aces low in both;
-that pairing is what distinguishes the two games.
+that pairing is what distinguishes the two games. Slot convention (the hi
+slot takes the odd chip): in badacey/badeucy and all drawmaha variants
+the **five-card-hand half is the hi slot** — badugi and the drawmaha
+omaha half sit in lo (owner ruling); archie and the omaha8/stud8/Big O
+family keep the classic high-hand-in-hi arrangement.
 
 **Stud seats cap at 7; draw games reshuffle the muck.** 7 × 7 = 49 ≤ 52,
 so stud never exhausts the deck (the 8-handed shared-community-card

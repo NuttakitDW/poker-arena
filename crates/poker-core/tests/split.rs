@@ -155,17 +155,17 @@ fn badacey_pot_always_splits() {
 
     let (hi0, lo0) = shown(&hand, 0);
     let (hi1, lo1) = shown(&hand, 1);
-    assert_eq!(hi1, Some(eval::badugi(&cards("Ac 2d 3h 4s"))));
-    assert_eq!(hi0.unwrap().0 >> 20, 2, "seat 0 has a two-card badugi only");
-    assert_eq!(lo0, Some(eval::ace_to_five_low(&cards("Ad 2c 3c 4c 5c"))));
-    assert!(hi1 > hi0, "nut badugi wins the hi half");
-    assert!(lo0 > lo1, "the wheel wins the lo half");
+    assert_eq!(lo1, Some(eval::badugi(&cards("Ac 2d 3h 4s"))));
+    assert_eq!(lo0.unwrap().0 >> 20, 2, "seat 0 has a two-card badugi only");
+    assert_eq!(hi0, Some(eval::ace_to_five_low(&cards("Ad 2c 3c 4c 5c"))));
+    assert!(lo1 > lo0, "nut badugi wins the badugi (lo) half");
+    assert!(hi0 > hi1, "the wheel wins the five-card (hi) half");
 
     assert_eq!(
         awards(&hand),
         vec![
-            awarded(0, PotSide::Hi, &[(1, 100)]),
-            awarded(0, PotSide::Lo, &[(0, 100)]),
+            awarded(0, PotSide::Hi, &[(0, 100)]),
+            awarded(0, PotSide::Lo, &[(1, 100)]),
         ]
     );
     assert_eq!(hand.settlement().unwrap().nets, vec![0, 0]);
@@ -202,19 +202,19 @@ fn badacey_badugi_uses_best_four_of_five() {
     let mut hand = start(&GameSpec::badacey_fl(STAKES), &[10_000; 2], &holes, "");
     check_down(&mut hand);
 
-    let (hi0, _) = shown(&hand, 0);
+    let (_, lo0) = shown(&hand, 0);
     assert_eq!(
-        hi0,
+        lo0,
         Some(eval::badugi(&cards("As 3d 4h 5c"))),
         "the best badugi drops the deuce, not the ace"
     );
-    assert_ne!(hi0, Some(eval::badugi(&cards("2s 3d 4h 5c"))));
-    assert_eq!(hi0.unwrap().0 >> 20, 4, "four-card badugi");
+    assert_ne!(lo0, Some(eval::badugi(&cards("2s 3d 4h 5c"))));
+    assert_eq!(lo0.unwrap().0 >> 20, 4, "four-card badugi");
 
     // Four kings plus a club: only a nine-plus-king two-card badugi exists.
-    let (hi1, _) = shown(&hand, 1);
-    assert_eq!(hi1.unwrap().0 >> 20, 2);
-    assert_eq!(hi1, Some(eval::badugi(&cards("Kd 9c"))));
+    let (_, lo1) = shown(&hand, 1);
+    assert_eq!(lo1.unwrap().0 >> 20, 2);
+    assert_eq!(lo1, Some(eval::badugi(&cards("Kd 9c"))));
 
     // Seat 0 also holds the wheel, so it scoops both halves.
     assert_eq!(hand.settlement().unwrap().nets, vec![100, -100]);
@@ -237,32 +237,33 @@ fn badeucy_aces_are_high_in_both_halves() {
     let (hi1, lo1) = shown(&hand, 1);
     let (hi2, lo2) = shown(&hand, 2);
 
-    assert_eq!(hi0, Some(eval::badugi_ace_high(&cards("As 2c 3d 4h"))));
-    assert_eq!(hi1, Some(eval::badugi_ace_high(&cards("2h 3c 4s 5d"))));
-    assert_eq!(hi0.unwrap().0 >> 20, 4);
-    assert_eq!(hi2.unwrap().0 >> 20, 3, "only three suits in seat 2's hand");
+    assert_eq!(lo0, Some(eval::badugi_ace_high(&cards("As 2c 3d 4h"))));
+    assert_eq!(lo1, Some(eval::badugi_ace_high(&cards("2h 3c 4s 5d"))));
+    assert_eq!(lo0.unwrap().0 >> 20, 4);
+    assert_eq!(lo2.unwrap().0 >> 20, 3, "only three suits in seat 2's hand");
     assert!(
-        hi1 > hi0,
+        lo1 > lo0,
         "5-4-3-2 rainbow beats A-2-3-4 rainbow when aces are high"
     );
-    assert!(hi0 > hi2, "a four-card badugi still beats a three-card one");
+    assert!(lo0 > lo2, "a four-card badugi still beats a three-card one");
 
     assert_eq!(
-        lo2,
+        hi2,
         Some(eval::deuce_to_seven_low(&cards("Th 9s 8c 7h 5s")))
     );
     assert!(
-        lo2 > lo0,
+        hi2 > hi0,
         "a ten-low beats A-5-4-3-2, which is merely ace-high at 2-7"
     );
-    assert!(lo0 > lo1, "any no-pair hand beats a pair of fives");
+    assert!(hi0 > hi1, "any no-pair hand beats a pair of fives");
 
-    // 300 chips: 150 to the badugi (seat 1), 150 to the 2-7 low (seat 2).
+    // 300 chips: 150 to the 2-7 low (seat 2, the hi slot), 150 to the
+    // badugi (seat 1, the lo slot).
     assert_eq!(
         awards(&hand),
         vec![
-            awarded(0, PotSide::Hi, &[(1, 150)]),
-            awarded(0, PotSide::Lo, &[(2, 150)]),
+            awarded(0, PotSide::Hi, &[(2, 150)]),
+            awarded(0, PotSide::Lo, &[(1, 150)]),
         ]
     );
     assert_eq!(hand.settlement().unwrap().nets, vec![-100, 50, 50]);
