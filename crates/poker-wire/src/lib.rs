@@ -35,6 +35,10 @@
 //!
 //! Full protocol documentation for bot authors (any language) lives in
 //! `WIRE_PROTOCOL.md` at the workspace root.
+//!
+//! [`ofc`] is a second, independently versioned protocol for the OFC
+//! (Open Face Chinese) variants: no chips, no betting, cards placed into
+//! rows and scored in points.
 
 pub mod action;
 pub mod card;
@@ -42,6 +46,7 @@ pub mod event;
 pub mod framing;
 pub mod game;
 pub mod message;
+pub mod ofc;
 pub mod report;
 pub mod value;
 
