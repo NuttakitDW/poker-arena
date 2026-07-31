@@ -1,21 +1,21 @@
 # Curated hand transcripts
 
 This directory holds hand-picked, verified-interesting hands for each of the
-nineteen registered game variants — real output from `poker-arena run --log`,
+twenty registered game variants — real output from `poker-arena run --log`,
 not synthetic examples. Each `transcripts/<game-id>.jsonl` contains 3–5
 complete hands, extracted **verbatim** (same bytes, same line order, no
 renumbering or reformatting) from a full match log produced with a fixed
 seed, so anyone can reproduce the source match and find the same hands at
 the same hand numbers.
 
-The first twelve games (holdem through 5cd-nl) are the "classic" families:
-community-card, stud, and draw games where a hand is the traditional
-best-5-card poker hand (or a hi/lo split of two such hands). The last seven
-(badacey-fl, badeucy-fl, archie-fl, bigo-pl, and the drawmaha family) are
-split-pot games built by evaluating the *same* hole cards two different,
-independent ways — see "Split-half games" below before reading those
-sections, since their `hi`/`lo` fields don't mean what they mean in the
-classic games.
+The first thirteen games (holdem through 27sd-nl) are the "classic"
+families: community-card, stud, and draw games where a hand is the
+traditional best-5-card poker hand (or a hi/lo split of two such hands).
+The last seven (badacey-fl, badeucy-fl, archie-fl, bigo-pl, and the
+drawmaha family) are split-pot games built by evaluating the *same* hole
+cards two different, independent ways — see "Split-half games" below
+before reading those sections, since their `hi`/`lo` fields don't mean
+what they mean in the classic games.
 
 ## Line shape
 
@@ -40,6 +40,21 @@ is the authoritative field reference for every event type below
 A hand in one of these files is always the complete, contiguous run from
 its `hand-start` line to its matching `hand-end` line — nothing is
 truncated mid-hand.
+
+**Two more line kinds, `27sd-nl` only.** The engine that produced
+`27sd-nl.jsonl` emits two line kinds with no `"ev"` key at all: a per-hand
+header immediately before that hand's `hand-start`,
+`{"hand": N, "deck": D, "seats": [...]}` (which bot sat which seat that
+hand), and a single trailing `{"log_summary": {"hands_seen": N,
+"hands_kept": N}}` at the very end of the file, match-level rather than
+per-hand. `27sd-nl.jsonl` keeps each curated hand's header line verbatim
+immediately before its events (so `grep`/`jq` still land on a complete,
+self-describing block); it does not include the trailing `log_summary`
+line, since that's a whole-match summary, not part of any one hand. The
+other nineteen files predate this log format change and don't have either
+line kind — if you regenerate one of *those* nineteen with the current
+binary, expect the same two additions to show up in your fresh log even
+though the checked-in file doesn't have them.
 
 ## How to read a hand
 
@@ -183,15 +198,18 @@ games:
   for a given hand number (identical streets: 5 hole cards, flop, one draw,
   turn, river); only the in-hand `hi` evaluator differs.
 
-All nineteen source matches here used `--hands 400 --seed 7 --dealing
-seeded`, mixing `builtin:random` (creates raises and folds), `builtin:
-shover` (creates all-ins), and `builtin:caller` (creates showdowns) so each
-match samples a wide range of textures; the seven split-half games use a
-4-seat table (2..=6 max for the draw-based ones) except `bigo-pl`, which
-uses 6 seats (its Omaha-style community streets support up to 9). Every
-claim below (winner, hand class, pot size, discard counts, capped streets,
-low strings, badugi strings) was checked against the actual event lines
-and, for every low-hand or split-half game, independently hand-computed
+Nineteen of the twenty source matches here used `--hands 400 --seed 7
+--dealing seeded`, mixing `builtin:random` (creates raises and folds),
+`builtin:shover` (creates all-ins), and `builtin:caller` (creates
+showdowns) so each match samples a wide range of textures; the seven
+split-half games use a 4-seat table (2..=6 max for the draw-based ones)
+except `bigo-pl`, which uses 6 seats (its Omaha-style community streets
+support up to 9). `27sd-nl` is the exception — see its own section below
+for why its bot mix drops `builtin:caller` in favor of `builtin:folder`.
+Every claim below (winner, hand class, pot size, discard counts, capped
+streets, low strings, badugi strings) was checked against the actual
+event lines and, for every low-hand or split-half game, independently
+hand-computed
 and cross-checked against the engine's own winner — not guessed from the
 bot mix or reused from a previous run.
 
@@ -232,8 +250,8 @@ so the moment anyone goes all-in, every other player who can still call
 does so for the *same* total commitment (their whole equal stack) rather
 than a lesser amount. Side pots need players to already be at different
 effective stack depths when the all-in happens, which structurally can't
-happen here. We looked for one across all nineteen 400-hand source matches
-(7,600 hands) and confirmed zero `pot-awarded` events with a nonzero pot
+happen here. We looked for one across all twenty 400-hand source matches
+(8,000 hands) and confirmed zero `pot-awarded` events with a nonzero pot
 index anywhere — so no curated hand below claims a side pot.
 
 ---
@@ -990,3 +1008,79 @@ sides are total evaluators, so the pot always splits.
   `J-5-2` — seat 0 takes the badugi/hi half (3200); seat 2's `Jd Jh` trips
   up with the board's `Td Jc Kc` for trip jacks and takes the omaha/lo
   half (3200): badugi and omaha go to different seats again.
+
+## 27sd-nl — No-Limit 2-7 Single Draw
+
+The newest registered game: the same skeleton as `5cd-nl` (predraw no-limit
+bet, one draw, postdraw no-limit bet, single showdown side, `lo` always
+`null`) but scored by `DeuceToSevenLow` instead of standard high — a made
+pair is *worse* than any unpaired hand, the ace always counts high (no
+wheel), and the best possible hand is `7-5-4-3-2`.
+
+```sh
+./target/release/poker-arena run --game 27sd-nl --hands 400 --seed 7 \
+  --dealing seeded --bot builtin:random --bot builtin:random:3 \
+  --bot builtin:folder --bot builtin:random:9 --log 27sd-nl.log
+```
+
+This bot mix is deliberately different from the other nineteen games'
+`random`/`shover`/`caller`/`random:9` (see "How to regenerate" above).
+`builtin:caller` never folds, which structurally guarantees a showdown
+whenever it's dealt in, so a match built from the usual mix produced zero
+fold-outs and zero snows in 400 hands — nothing for a single-draw lowball
+game to show off. Swapping `caller` for `builtin:folder` alone still
+wasn't enough: with `builtin:shover` still at the table, its immediate
+predraw all-ins short-circuited most hands before they ever reached the
+draw, so the resulting fold-outs were all pre-draw and postdraw play never
+happened. Dropping `builtin:shover` too — leaving `random` / `random:3` /
+`folder` / `random:9`, no unconditional all-in bot and no unconditional
+caller — let hands actually reach the draw via checks and calls, which is
+what produces genuine post-draw raise wars, fold-outs, and snows. (As a
+side note, this game deals identically to `5cd-nl` at matching hand
+numbers whenever both are run with `--seed 7 --dealing seeded` despite the
+different bot lineups — dealing is independent of which bots are seated —
+though the two files' curated hand numbers don't happen to overlap.)
+
+Every claim below (low string, pair/no-pair class, fold timing, pot size)
+was independently hand-computed from the raw `showdown-show`/`draw-result`
+events with a from-scratch `DeuceToSevenLow` comparator and cross-checked
+against the engine's own `pot-awarded` winner, not guessed.
+
+- **hand 201** — three-way to the draw after a preflop raise to 4771; seat
+  1 stands pat on `3h Qd 2h 9s Td` (`Q-T-9-3-2`, no pair), seat 2 discards
+  two, seat 0 discards one. Postdraw, seat 0 bets 1970, seat 1 raises to
+  5100, seat 2 calls, seat 0 folds. At showdown seat 1's pat `Q-T-9-3-2`
+  beats seat 2's drawn `3s 4d 6d 6s Jd` (`J-6-6-4-3`, paired sixes); wins
+  26483.
+- **hand 207** — a three-way preflop raise war (2828 → 5848 → 9186, all
+  three call the last raise) before the draw; seat 2 discards three, seats
+  3 and 0 both stand pat, and everyone checks the entire postdraw street to
+  showdown. Seat 0's pat `4h 2s 6h 7c 8d` (`8-7-6-4-2`) beats seat 3's pat
+  `Tc 6s 3c 9d 7d` (`T-9-7-6-3`) and seat 2's drawn `9h 4d 6c Ad 3d`
+  (`A-9-6-4-3`) — the best of three pat-or-near-pat hands takes it; wins
+  the full 27608 pot.
+- **hand 233** — three-way to the draw (one seat folds preflop); seat 1
+  discards all five cards, seat 2 stands pat, seat 0 discards two.
+  Postdraw, seat 1 leads for 9296, seat 2 raises all-in to 9900, seat 0
+  calls all-in, and seat 1 folds its own bet rather than continue three-way
+  — a multiway all-in missing its own aggressor at showdown. Seat 2's pat
+  `7s 5c Th 8h Jd` (`J-T-8-7-5`) beats seat 0's drawn `2d 6s 4d As Qs`
+  (`A-Q-6-4-2`, ace-high); wins 29396.
+- **hand 274** — three-way to the draw (one seat folds preflop); seat 1
+  discards all five, seat 0 discards all five, and seat 2 discards three,
+  drawing back both `Ah` *and* `Ad` — meaning seat 2's final hand contains
+  a pair of aces no matter which two of its original five cards it kept,
+  about as bad a made hand as 2-7 has. Postdraw, seat 2 bets 3183, seat 0
+  raises to 9364, seat 1 calls, seat 2 shoves all-in to 9900, and both
+  opponents fold to a hand that — per the guaranteed ace pair — was almost
+  certainly no good; seat 2 takes the full 28392 pot without ever showing,
+  the flagship post-draw bluff fold-out.
+- **hand 295** — the flagship snow: seat 2 raises preflop to 7507 and seat
+  1 calls; both stand pat. Postdraw, seat 2 bets 942 and seat 1 raises to
+  2432; seat 2 folds. Seat 1's actual hand, `3h 2d 4s Th 3s` (`T-4-3-3-2`,
+  a pair of treys), is the *weaker* of the two by 2-7 rules — a made pair
+  is categorically worse than any unpaired hand — since seat 2's own pat
+  `Jh Ad Kc 6s Qd` (`A-K-Q-J-6`, no pair) is unpaired and would have won
+  any showdown; seat 1 stood pat with the worse hand and bet it as the
+  better one, winning 16898 purely on fold equity.
+
