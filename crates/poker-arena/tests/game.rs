@@ -309,7 +309,7 @@ fn hello_for(spec: &GameSpec, starting_stack: u64, timeout_ms: Option<u64>) -> A
         proto: poker_wire::PROTO_VERSION,
         game_id: spec.id.to_string(),
         stakes: spec.stakes,
-        betting: spec.betting.into(),
+        betting: spec.betting,
         seat_count: 2,
         starting_stack,
         timeout_ms,

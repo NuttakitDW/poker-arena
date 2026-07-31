@@ -28,9 +28,9 @@ Every line is one JSON object:
 `hand` is the 0-based hand counter for the match (matches `Event::HandStart`
 / `Event::HandEnd`'s position in the stream — the wire protocol's per-bot
 `hand_no` is 1-based, but this is the arena-side log, which counts from 0).
-`ev` is one `poker_core::game::Event`, serialized exactly as
+`ev` is one `poker_wire::event::Event`, serialized exactly as
 [`WIRE_PROTOCOL.md`](../WIRE_PROTOCOL.md) documents under
-[Events (`WireEvent`)](../WIRE_PROTOCOL.md#events-wireevent) — the log and
+[Events (`Event`)](../WIRE_PROTOCOL.md#events-event) — the log and
 the wire protocol share the same event enum byte-for-byte, so that section
 is the authoritative field reference for every event type below
 (`hand-start`, `post`, `deal-hole`, `street-start`, `deal-community` /

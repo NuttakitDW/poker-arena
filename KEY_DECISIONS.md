@@ -8,12 +8,25 @@ or forecloses an alternative someone might reasonably expect.
 
 ## Architecture
 
-**Four crates with a strict dependency direction.** `poker-core` answers
-"what are the rules of poker" (pure, no I/O); `poker-wire` answers "how are
-messages encoded" (transport-agnostic); `poker-arena` answers "how do we run
-a competition"; `poker-arena-cli` is the binary shell. Core (and core +
-wire) stay reusable by solvers, replay tools, and Rust bot clients without
-dragging in match machinery.
+**Four crates with a strict dependency direction: `wire ← core ← arena ←
+cli`.** `poker-wire` is the *vocabulary* — cards, actions, events, stakes,
+plus the protocol messages and framing that carry them — and depends on
+nothing but serde; `poker-core` is the *machinery* that answers "what are
+the rules of poker" (pure, no I/O) in terms of that vocabulary;
+`poker-arena` answers "how do we run a competition"; `poker-arena-cli` is
+the binary shell.
+
+The direction points this way because of who needs the smaller half: a bot
+client needs the words, not the rules engine, so `poker-wire` alone is a
+complete dependency for writing a bot in Rust, while solvers and replay
+tools take core on top. It also collapses a whole category of bug. The
+arrow used to run `core ← wire`, which forced wire to define `WireEvent`, a
+deserializable mirror of core's `Serialize`-only `Event`, held in sync by a
+`wire_event_fidelity` test asserting the two serialized byte-for-byte
+identically. Inverting the dependency let `Event` become one type that the
+engine emits and bots deserialize — the mirror, its `From` impls, and the
+test that policed them are all gone, because two things that cannot differ
+need no test proving they don't.
 
 **Variants are data, not code.** A `GameSpec` is a sequence of streets
 (deal + optional betting round), a betting structure, forced bets, and a

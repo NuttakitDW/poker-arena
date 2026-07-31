@@ -30,7 +30,7 @@ fn hello(timeout_ms: Option<u64>) -> ArenaMsg {
         proto: poker_wire::PROTO_VERSION,
         game_id: "holdem-nl".to_string(),
         stakes: STAKES,
-        betting: poker_wire::message::WireBetting::NoLimit,
+        betting: poker_wire::game::BettingKind::NoLimit,
         seat_count: 2,
         starting_stack: 10_000,
         timeout_ms,

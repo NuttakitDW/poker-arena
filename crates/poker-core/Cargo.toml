@@ -3,9 +3,10 @@ name = "poker-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Deterministic poker rules engine: cards, evaluation, variants, hand state machine."
+description = "Deterministic poker rules engine: evaluation, variants, hand state machine."
 
 [dependencies]
+poker-wire = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
 

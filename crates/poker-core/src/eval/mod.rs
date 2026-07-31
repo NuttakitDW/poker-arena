@@ -68,6 +68,11 @@ mod low;
 
 use crate::card::Card;
 
+/// Hand strength as it appears at showdown; defined in `poker-wire` (bots
+/// read these values off the event stream), while every *encoding* below and
+/// the evaluators that produce them are this module's business.
+pub use poker_wire::value::{HandClass, HandValue};
+
 /// Which evaluator to run; variants reference these in their showdown specs.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -87,46 +92,6 @@ pub enum EvalKind {
     /// iff the best high hand is at least a pair of sixes (class above
     /// OnePair, or OnePair with pair rank ≥ Six); may not qualify.
     SixesOrBetterHigh,
-}
-
-/// Category of a *high* poker hand (also the class penalty scale for A-5).
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(u8)]
-pub enum HandClass {
-    HighCard = 0,
-    OnePair,
-    TwoPair,
-    Trips,
-    Straight,
-    Flush,
-    FullHouse,
-    Quads,
-    StraightFlush,
-}
-
-/// Totally ordered hand strength; greater wins the pot side it was computed
-/// for. Only comparable against values from the same [`EvalKind`].
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct HandValue(pub u32);
-
-impl HandValue {
-    /// The [`HandClass`] of a value produced by [`EvalKind::High`].
-    /// Meaningless for values from other evaluators.
-    pub fn high_class(self) -> HandClass {
-        const CLASSES: [HandClass; 9] = [
-            HandClass::HighCard,
-            HandClass::OnePair,
-            HandClass::TwoPair,
-            HandClass::Trips,
-            HandClass::Straight,
-            HandClass::Flush,
-            HandClass::FullHouse,
-            HandClass::Quads,
-            HandClass::StraightFlush,
-        ];
-        CLASSES[((self.0 >> 20) & 0xF) as usize]
-    }
 }
 
 /// Best high hand from 5–7 cards.

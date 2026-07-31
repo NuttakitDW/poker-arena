@@ -5,38 +5,14 @@
 //! tagged on `"t"` with kebab-case variant names and carry an `Unknown`
 //! catch-all for forward compatibility.
 //!
-//! [`WireEvent`] is a deserializable mirror of [`poker_core::game::Event`]
-//! (core's is `Serialize`-only — see that type's docs) that serializes
-//! byte-identically to it; see the `wire_event_fidelity` test below for the
-//! contract this is held to.
+//! The payloads they carry — [`Event`], [`Action`], [`Stakes`],
+//! [`BettingKind`] — are this crate's own vocabulary types, so what the
+//! engine emits and what a bot reads are the same definitions, not two
+//! that have to be held in sync.
 
-use poker_core::card::Card;
-use poker_core::eval::HandValue;
-use poker_core::game::{Action, BetBounds, Event, LegalActions, Stakes};
-
-/// Deserializable mirror of `poker_core::game::BettingKind` (core's is
-/// `Serialize`-only). Serializes identically: same tag, kebab-case variant
-/// names, and field shapes. Bots need this to plan a street: without the
-/// raise cap, a fixed-limit bot cannot tell how many more raises are legal.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum WireBetting {
-    NoLimit,
-    PotLimit,
-    FixedLimit { raise_cap: Option<u8> },
-}
-
-impl From<poker_core::game::BettingKind> for WireBetting {
-    fn from(kind: poker_core::game::BettingKind) -> WireBetting {
-        match kind {
-            poker_core::game::BettingKind::NoLimit => WireBetting::NoLimit,
-            poker_core::game::BettingKind::PotLimit => WireBetting::PotLimit,
-            poker_core::game::BettingKind::FixedLimit { raise_cap } => {
-                WireBetting::FixedLimit { raise_cap }
-            }
-        }
-    }
-}
+use crate::action::{Action, BetBounds, LegalActions};
+use crate::event::Event;
+use crate::game::{BettingKind, Stakes};
 
 /// The decision offered to a bot at an `ArenaMsg::Act`. Exactly one decision
 /// family applies per turn — self-describing via `kind`, so bots switch on
@@ -103,7 +79,7 @@ pub enum ArenaMsg {
         /// Betting structure, tagged like `{"kind":"no-limit"}` |
         /// `{"kind":"pot-limit"}` | `{"kind":"fixed-limit","raise_cap":4}`
         /// (`raise_cap` null = uncapped).
-        betting: WireBetting,
+        betting: BettingKind,
         seat_count: usize,
         starting_stack: u64,
         timeout_ms: Option<u64>,
@@ -115,7 +91,7 @@ pub enum ArenaMsg {
     /// hand (stacks, the button, deals) arrives in the event stream.
     HandStart { hand_no: u64, seat: usize },
     /// An observable event, already redacted for this bot's seat.
-    Event { hand_no: u64, ev: WireEvent },
+    Event { hand_no: u64, ev: Event },
     /// It is this bot's turn; reply with a `BotMsg::Action` conforming to
     /// `decision`. `deadline_ms` is echoed so bots can self-limit; the arena
     /// enforces the real deadline server-side regardless.
@@ -154,215 +130,22 @@ pub enum BotMsg {
     Unknown,
 }
 
-/// Deserializable mirror of `poker_core::game::PostKind` (core's is
-/// `Serialize`-only). Serializes identically: same kebab-case variant names.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum PostKind {
-    Ante,
-    SmallBlind,
-    BigBlind,
-    BringIn,
-}
-
-impl From<poker_core::game::PostKind> for PostKind {
-    fn from(kind: poker_core::game::PostKind) -> PostKind {
-        match kind {
-            poker_core::game::PostKind::Ante => PostKind::Ante,
-            poker_core::game::PostKind::SmallBlind => PostKind::SmallBlind,
-            poker_core::game::PostKind::BigBlind => PostKind::BigBlind,
-            poker_core::game::PostKind::BringIn => PostKind::BringIn,
-        }
-    }
-}
-
-/// Deserializable mirror of `poker_core::game::PotSide` (core's is
-/// `Serialize`-only). Serializes identically: same kebab-case variant names.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum PotSide {
-    Whole,
-    Hi,
-    Lo,
-}
-
-impl From<poker_core::game::PotSide> for PotSide {
-    fn from(side: poker_core::game::PotSide) -> PotSide {
-        match side {
-            poker_core::game::PotSide::Whole => PotSide::Whole,
-            poker_core::game::PotSide::Hi => PotSide::Hi,
-            poker_core::game::PotSide::Lo => PotSide::Lo,
-        }
-    }
-}
-
-/// Deserializable mirror of `poker_core::game::Event`. Serializes
-/// byte-identically to it (same tag `"event"`, same kebab-case variant and
-/// field names/shapes); the only representational difference is
-/// `label: String` where core has `&'static str`. `Card`, `Action`, and
-/// `HandValue` are reused directly from `poker-core` since those already
-/// round-trip through serde.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "event", rename_all = "kebab-case")]
-pub enum WireEvent {
-    HandStart {
-        hand_no: u64,
-        button: usize,
-        stacks: Vec<u64>,
-    },
-    Post {
-        seat: usize,
-        kind: PostKind,
-        amount: u64,
-        all_in: bool,
-    },
-    /// `cards` is private to `seat`; observers see `count` with empty cards
-    /// (mirrors `Event::redacted_for`).
-    DealHole {
-        seat: usize,
-        cards: Vec<Card>,
-        count: u8,
-    },
-    StreetStart {
-        street: u8,
-        label: String,
-    },
-    DealCommunity {
-        street: u8,
-        cards: Vec<Card>,
-    },
-    DealUp {
-        seat: usize,
-        cards: Vec<Card>,
-    },
-    Acted {
-        seat: usize,
-        action: Action,
-        street_commit: u64,
-        all_in: bool,
-    },
-    DrawResult {
-        seat: usize,
-        discarded: u8,
-        drawn: Vec<Card>,
-    },
-    ShowdownShow {
-        seat: usize,
-        cards: Vec<Card>,
-        hi: Option<HandValue>,
-        lo: Option<HandValue>,
-    },
-    PotAwarded {
-        pot: u8,
-        side: PotSide,
-        winners: Vec<(usize, u64)>,
-    },
-    HandEnd {
-        nets: Vec<i64>,
-    },
-    /// Catch-all for event types this build doesn't know about yet.
-    #[serde(other)]
-    Unknown,
-}
-
-impl From<&Event> for WireEvent {
-    fn from(ev: &Event) -> WireEvent {
-        match ev {
-            Event::HandStart {
-                hand_no,
-                button,
-                stacks,
-            } => WireEvent::HandStart {
-                hand_no: *hand_no,
-                button: *button,
-                stacks: stacks.clone(),
-            },
-            Event::Post {
-                seat,
-                kind,
-                amount,
-                all_in,
-            } => WireEvent::Post {
-                seat: *seat,
-                kind: (*kind).into(),
-                amount: *amount,
-                all_in: *all_in,
-            },
-            Event::DealHole { seat, cards, count } => WireEvent::DealHole {
-                seat: *seat,
-                cards: cards.clone(),
-                count: *count,
-            },
-            Event::StreetStart { street, label } => WireEvent::StreetStart {
-                street: *street,
-                label: (*label).to_string(),
-            },
-            Event::DealCommunity { street, cards } => WireEvent::DealCommunity {
-                street: *street,
-                cards: cards.clone(),
-            },
-            Event::DealUp { seat, cards } => WireEvent::DealUp {
-                seat: *seat,
-                cards: cards.clone(),
-            },
-            Event::Acted {
-                seat,
-                action,
-                street_commit,
-                all_in,
-            } => WireEvent::Acted {
-                seat: *seat,
-                action: action.clone(),
-                street_commit: *street_commit,
-                all_in: *all_in,
-            },
-            Event::DrawResult {
-                seat,
-                discarded,
-                drawn,
-            } => WireEvent::DrawResult {
-                seat: *seat,
-                discarded: *discarded,
-                drawn: drawn.clone(),
-            },
-            Event::ShowdownShow {
-                seat,
-                cards,
-                hi,
-                lo,
-            } => WireEvent::ShowdownShow {
-                seat: *seat,
-                cards: cards.clone(),
-                hi: *hi,
-                lo: *lo,
-            },
-            Event::PotAwarded { pot, side, winners } => WireEvent::PotAwarded {
-                pot: *pot,
-                side: (*side).into(),
-                winners: winners.clone(),
-            },
-            Event::HandEnd { nets } => WireEvent::HandEnd { nets: nets.clone() },
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use poker_core::card::{Card as CoreCard, Rank, Suit};
-    use poker_core::eval::HandValue as CoreHandValue;
-    use poker_core::game::{
-        Action as CoreAction, PostKind as CorePostKind, PotSide as CorePotSide,
-    };
+    use crate::action::{DrawBounds, LegalActions};
+    use crate::card::{Card, Rank, Suit};
+    use crate::event::{PostKind, PotSide};
+    use crate::value::HandValue;
 
-    fn c(rank: Rank, suit: Suit) -> CoreCard {
-        CoreCard::new(rank, suit)
+    fn c(rank: Rank, suit: Suit) -> Card {
+        Card::new(rank, suit)
     }
 
-    /// One `Event` of every variant, exercising the tricky corners called
-    /// out in the spec: cards, a redacted `DealHole` (empty cards + count),
-    /// `PotAwarded` with multiple winners, and a `HandEnd` with a negative
-    /// net.
+    /// One `Event` of every engine-emitted variant, exercising the tricky
+    /// corners called out in the spec: cards, a redacted `DealHole` (empty
+    /// cards + count), `PotAwarded` with multiple winners, and a `HandEnd`
+    /// with a negative net.
     fn battery() -> Vec<Event> {
         vec![
             Event::HandStart {
@@ -372,13 +155,13 @@ mod tests {
             },
             Event::Post {
                 seat: 0,
-                kind: CorePostKind::SmallBlind,
+                kind: PostKind::SmallBlind,
                 amount: 50,
                 all_in: false,
             },
             Event::Post {
                 seat: 1,
-                kind: CorePostKind::BigBlind,
+                kind: PostKind::BigBlind,
                 amount: 100,
                 all_in: true,
             },
@@ -396,7 +179,7 @@ mod tests {
             },
             Event::StreetStart {
                 street: 1,
-                label: "flop",
+                label: "flop".to_string(),
             },
             Event::DealCommunity {
                 street: 1,
@@ -412,13 +195,13 @@ mod tests {
             },
             Event::Acted {
                 seat: 0,
-                action: CoreAction::Raise { to: 300 },
+                action: Action::Raise { to: 300 },
                 street_commit: 300,
                 all_in: false,
             },
             Event::Acted {
                 seat: 1,
-                action: CoreAction::Discard {
+                action: Action::Discard {
                     cards: vec![c(Rank::Two, Suit::Clubs)],
                 },
                 street_commit: 100,
@@ -432,17 +215,17 @@ mod tests {
             Event::ShowdownShow {
                 seat: 0,
                 cards: vec![c(Rank::Ace, Suit::Spades), c(Rank::Ace, Suit::Diamonds)],
-                hi: Some(CoreHandValue(12345)),
+                hi: Some(HandValue(12345)),
                 lo: None,
             },
             Event::PotAwarded {
                 pot: 0,
-                side: CorePotSide::Whole,
+                side: PotSide::Whole,
                 winners: vec![(0, 600)],
             },
             Event::PotAwarded {
                 pot: 1,
-                side: CorePotSide::Lo,
+                side: PotSide::Lo,
                 winners: vec![(0, 50), (1, 50)],
             },
             Event::HandEnd {
@@ -452,25 +235,11 @@ mod tests {
     }
 
     #[test]
-    fn wire_event_fidelity_matches_core_json_byte_for_byte() {
-        for core_event in battery() {
-            let core_json = serde_json::to_value(&core_event).unwrap();
-            let wire_event = WireEvent::from(&core_event);
-            let wire_json = serde_json::to_value(&wire_event).unwrap();
-            assert_eq!(
-                core_json, wire_json,
-                "mismatch for {core_event:?}: core={core_json} wire={wire_json}"
-            );
-        }
-    }
-
-    #[test]
-    fn wire_event_round_trips_through_json() {
-        for core_event in battery() {
-            let wire_event = WireEvent::from(&core_event);
-            let text = serde_json::to_string(&wire_event).unwrap();
-            let back: WireEvent = serde_json::from_str(&text).unwrap();
-            assert_eq!(back, wire_event);
+    fn event_round_trips_through_json() {
+        for event in battery() {
+            let text = serde_json::to_string(&event).unwrap();
+            let back: Event = serde_json::from_str(&text).unwrap();
+            assert_eq!(back, event);
         }
     }
 
@@ -480,7 +249,7 @@ mod tests {
             check: false,
             call: Some(100),
             bet: None,
-            raise: Some(poker_core::game::BetBounds {
+            raise: Some(BetBounds {
                 min_to: 200,
                 max_to: 10_000,
             }),
@@ -498,7 +267,7 @@ mod tests {
                     small_blind: 50,
                     big_blind: 100,
                 },
-                betting: WireBetting::NoLimit,
+                betting: BettingKind::NoLimit,
                 seat_count: 2,
                 starting_stack: 10_000,
                 timeout_ms: Some(5_000),
@@ -509,9 +278,9 @@ mod tests {
             },
             ArenaMsg::Event {
                 hand_no: 1,
-                ev: WireEvent::from(&Event::HandEnd {
+                ev: Event::HandEnd {
                     nets: vec![100, -100],
-                }),
+                },
             },
             ArenaMsg::Act {
                 hand_no: 1,
@@ -533,10 +302,10 @@ mod tests {
                 name: "example-bot".to_string(),
             },
             BotMsg::Action {
-                action: CoreAction::Call,
+                action: Action::Call,
             },
             BotMsg::Action {
-                action: CoreAction::Raise { to: 300 },
+                action: Action::Raise { to: 300 },
             },
         ]
     }
@@ -570,7 +339,7 @@ mod tests {
                 small_blind: 50,
                 big_blind: 100,
             },
-            betting: WireBetting::NoLimit,
+            betting: BettingKind::NoLimit,
             seat_count: 2,
             starting_stack: 10_000,
             timeout_ms: Some(5_000),
@@ -636,7 +405,7 @@ mod tests {
     #[test]
     fn action_message_has_the_expected_exact_json() {
         let msg = BotMsg::Action {
-            action: CoreAction::Raise { to: 300 },
+            action: Action::Raise { to: 300 },
         };
         let text = serde_json::to_string(&msg).unwrap();
         assert_eq!(text, r#"{"t":"action","action":{"kind":"raise","to":300}}"#);
@@ -738,7 +507,7 @@ mod tests {
             bet: None,
             raise: None,
             bring_in: None,
-            draw: Some(poker_core::game::DrawBounds { max_discards: 3 }),
+            draw: Some(DrawBounds { max_discards: 3 }),
         };
         assert_eq!(
             WireDecision::from(&legal),
@@ -800,9 +569,9 @@ mod tests {
     }
 
     #[test]
-    fn unknown_wire_event_type_deserializes_to_unknown_variant() {
-        let ev: WireEvent = serde_json::from_str(r#"{"event":"some-future-event","x":1}"#).unwrap();
-        assert_eq!(ev, WireEvent::Unknown);
+    fn unknown_event_type_deserializes_to_unknown_variant() {
+        let ev: Event = serde_json::from_str(r#"{"event":"some-future-event","x":1}"#).unwrap();
+        assert_eq!(ev, Event::Unknown);
     }
 
     #[test]

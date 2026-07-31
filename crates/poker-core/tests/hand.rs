@@ -120,7 +120,7 @@ fn heads_up_limp_check_down_to_showdown() {
             },
             Event::StreetStart {
                 street: 0,
-                label: "preflop",
+                label: "preflop".to_string(),
             },
             Event::DealHole {
                 seat: 1,
@@ -145,7 +145,7 @@ fn heads_up_limp_check_down_to_showdown() {
             acted(1, Action::Check, 100, false),
             Event::StreetStart {
                 street: 1,
-                label: "flop",
+                label: "flop".to_string(),
             },
             Event::DealCommunity {
                 street: 1,
@@ -250,7 +250,7 @@ fn heads_up_all_in_preflop_runs_out_immediately() {
         &[
             Event::StreetStart {
                 street: 1,
-                label: "flop"
+                label: "flop".to_string()
             },
             Event::DealCommunity {
                 street: 1,
@@ -258,7 +258,7 @@ fn heads_up_all_in_preflop_runs_out_immediately() {
             },
             Event::StreetStart {
                 street: 2,
-                label: "turn"
+                label: "turn".to_string()
             },
             Event::DealCommunity {
                 street: 2,
@@ -266,7 +266,7 @@ fn heads_up_all_in_preflop_runs_out_immediately() {
             },
             Event::StreetStart {
                 street: 3,
-                label: "river"
+                label: "river".to_string()
             },
             Event::DealCommunity {
                 street: 3,

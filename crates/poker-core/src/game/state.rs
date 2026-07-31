@@ -678,7 +678,7 @@ impl HandState {
         let deal = self.spec.streets[idx].deal.clone();
         ev.push(Event::StreetStart {
             street: idx as u8,
-            label,
+            label: label.to_string(),
         });
         match deal {
             DealSpec::None => {}

@@ -37,23 +37,33 @@ better, across many poker variants, with statistically sound comparison.
 
 ## 3. Workspace layout
 
-Three crates with a strict dependency direction: `core ← wire ← arena` and
-`core ← arena`. The boundary rule: **core answers "what are the rules of
-poker"; wire answers "how are messages encoded"; arena answers "how do we run
-a competition".** Core (and core + wire) are reusable by other tools — a
-solver can drive `HandState` for game-tree traversal; a Rust bot author can
-depend on core + wire to build a client with zero arena machinery.
+Four crates with a strict dependency direction: `wire ← core ← arena ← cli`.
+The boundary rule: **wire owns the vocabulary a match is described in; core
+answers "what are the rules of poker"; arena answers "how do we run a
+competition".** Each prefix is reusable on its own — a Rust bot author
+depends on wire alone (cards, actions, events, framing, zero rules engine);
+a solver adds core to drive `HandState` for game-tree traversal.
 
 ```
 poker-arena/                     workspace root
   Cargo.toml
   crates/
-    poker-core/                  pure rules, no I/O — reusable by solvers etc.
+    poker-wire/                  vocabulary + protocol; serde only, no networking
       src/
         lib.rs
-        card.rs                 Card, Rank, Suit, Deck, deterministic shuffling
+        card.rs                  Card, Rank, Suit (serialize as "As", "Td")
+        action.rs                Action, LegalActions, BetBounds, DrawBounds
+        event.rs                 Event stream + per-seat visibility filtering
+        value.rs                 HandValue, HandClass as seen at showdown
+        game.rs                  Stakes, BettingKind: the per-match parameters
+        message.rs               versioned message types (serde), both directions
+        framing.rs               JSON-lines read/write over any Read/Write
+    poker-core/                  pure rules, no I/O — reusable by solvers etc.
+      src/
+        lib.rs                   (re-exports wire's vocabulary at core paths)
+        deck.rs                  Deck: deterministic shuffling and scripted deals
         eval/
-          mod.rs                 HandValue, Evaluator dispatch
+          mod.rs                 evaluator dispatch, HandValue encodings
           high.rs                standard high hands (5 of N)
           low.rs                 A-5 lowball, 2-7 lowball, 8-or-better qualifier
           badugi.rs
@@ -61,14 +71,7 @@ poker-arena/                     workspace root
           spec.rs                GameSpec: data-driven variant descriptor + registry
           state.rs               HandState: the per-hand state machine
                                  (incl. limits, min-raise, pot-limit math)
-          action.rs              Action, LegalActions
           pot.rs                 side-pot construction and awarding
-          event.rs               Event stream + per-seat visibility filtering
-    poker-wire/                  protocol definitions + framing, no networking
-      src/
-        lib.rs
-        message.rs              versioned message types (serde), both directions
-        framing.rs               JSON-lines read/write over any Read/Write
     poker-arena/                 competition machinery; lib + `poker-arena` binary
       src/
         lib.rs
@@ -86,16 +89,21 @@ poker-arena/                     workspace root
         main.rs                  CLI (clap)
 ```
 
-- `poker-core`: depends only on `thiserror`. The deck RNG (xoshiro256** +
+- `poker-wire`: `serde`/`serde_json`/`thiserror` and nothing else — no
+  workspace crate at all, which is what makes it a viable single dependency
+  for a bot client. Serde is unconditional here (a serialization crate has
+  no business making serialization optional). Defines the vocabulary types
+  above, the message schema, and the framing contract (exactly one JSON
+  object per `\n`-terminated line). Transport-agnostic: works over any
+  `Read`/`Write`, so it owns no sockets. `Event` is defined exactly once and
+  is both `Serialize` and `Deserialize`, so the engine's event stream, the
+  hand log, and what a bot parses are the same bytes by construction.
+- `poker-core`: `poker-wire` + `thiserror`. The deck RNG (xoshiro256** +
   splitmix64) is implemented in-crate (`rng.rs`) because external RNG crates
   don't guarantee cross-version stream stability and seed → identical deals
   is a forever promise (enforced by a frozen snapshot test). `serde` derives
-  live behind an optional `serde` feature so solver-style consumers pay
-  nothing for them.
-- `poker-wire`: `serde`/`serde_json` + `poker-core` (with `serde` feature).
-  Defines and documents the message schema and the framing contract (exactly
-  one JSON object per `\n`-terminated line). Transport-agnostic: works over
-  any `Read`/`Write`, so it owns no sockets.
+  for the engine-local spec types live behind an optional `serde` feature so
+  solver-style consumers pay nothing for them.
 - `poker-arena`: everything else — `clap`, networking, subprocess spawning,
   stats. **No async runtime** — the game is strictly turn-based, so blocking
   I/O with deadlines is simpler and sufficient; parallelism (if ever needed)

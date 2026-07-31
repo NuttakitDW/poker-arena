@@ -209,7 +209,7 @@ fn draw_sits_between_flop_and_turn_with_no_betting() {
             },
             Event::StreetStart {
                 street: 2,
-                label: "draw",
+                label: "draw".to_string(),
             },
         ]
     );
@@ -264,7 +264,7 @@ fn draw_sits_between_flop_and_turn_with_no_betting() {
         ev2[1],
         Event::StreetStart {
             street: 3,
-            label: "turn",
+            label: "turn".to_string(),
         }
     );
     assert!(matches!(ev2[2], Event::DealCommunity { street: 3, .. }));
@@ -317,7 +317,7 @@ fn draw_replacements_come_after_board_cards_in_deck_order() {
         ev[1],
         Event::StreetStart {
             street: 3,
-            label: "turn",
+            label: "turn".to_string(),
         }
     );
     assert_eq!(

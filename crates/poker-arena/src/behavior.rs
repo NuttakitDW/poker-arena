@@ -173,7 +173,7 @@ mod tests {
     fn street_start(street: u8) -> Event {
         Event::StreetStart {
             street,
-            label: "test",
+            label: "test".to_string(),
         }
     }
 

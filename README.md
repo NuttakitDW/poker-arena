@@ -13,8 +13,8 @@ reasoning behind them.
 
 | Crate | Purpose |
 |---|---|
-| `poker-core` | Pure rules: cards, hand evaluators (high, A-5 low, 2-7 low, eight-or-better, badugi), data-driven `GameSpec` variants, side-pot engine, and the `HandState` per-hand state machine. No I/O; reusable by solvers and analysis tools. |
-| `poker-wire` | Versioned JSON-lines wire-protocol definitions. |
+| `poker-wire` | The shared vocabulary — `Card`, `Action`, `Event`, `Stakes`, `HandValue` — plus the versioned JSON-lines protocol messages and framing that carry them. Depends on nothing but serde, so a Rust bot client can link this crate and nothing else. |
+| `poker-core` | Pure rules on top of that vocabulary: hand evaluators (high, A-5 low, 2-7 low, eight-or-better, badugi), data-driven `GameSpec` variants, side-pot engine, deck/shuffling, and the `HandState` per-hand state machine. No I/O; reusable by solvers and analysis tools. |
 | `poker-arena` | Competition layer: `Bot` trait, builtin baseline bots, match runner with duplicate dealing, winnings statistics, hand-history log, and the `poker-arena` CLI. |
 
 ## Quick start

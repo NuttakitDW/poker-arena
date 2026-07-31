@@ -607,6 +607,9 @@ fn kind_of(event: &Event) -> String {
         Event::ShowdownShow { seat, cards, .. } => format!("show:{seat}:{}", cards.len()),
         Event::PotAwarded { pot, .. } => format!("award:{pot}"),
         Event::HandEnd { .. } => "hand-end".into(),
+        // Deserialization-only forward-compat variant; the engine never
+        // emits it, so reaching it here is a bug worth failing loudly on.
+        Event::Unknown => unreachable!("the engine never emits Event::Unknown"),
     }
 }
 

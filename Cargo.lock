@@ -153,6 +153,7 @@ dependencies = [
 name = "poker-core"
 version = "0.1.0"
 dependencies = [
+ "poker-wire",
  "serde",
  "thiserror",
 ]
@@ -161,7 +162,6 @@ dependencies = [
 name = "poker-wire"
 version = "0.1.0"
 dependencies = [
- "poker-core",
  "serde",
  "serde_json",
  "thiserror",

@@ -3,10 +3,9 @@ name = "poker-wire"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Wire protocol message definitions and JSON-lines framing for poker-arena."
+description = "Poker match vocabulary (cards, actions, events) plus wire protocol and JSON-lines framing."
 
 [dependencies]
-poker-core = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

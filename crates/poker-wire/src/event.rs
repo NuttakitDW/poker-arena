@@ -4,17 +4,17 @@
 //! all consume this stream. The engine emits *unredacted* events; callers
 //! filter per observer with [`Event::redacted_for`].
 //!
-//! (`Serialize` only under the `serde` feature — street labels are
-//! `&'static str`; the wire crate owns deserializable DTOs.)
+//! This is the one and only definition: the engine emits it and bots
+//! deserialize it, so there is no mirror type to keep in sync and no way for
+//! the log format and the wire format to drift apart.
 
-use super::action::{Action, Chips, Seat};
+use crate::action::{Action, Chips, Seat};
 use crate::card::Card;
-use crate::eval::HandValue;
+use crate::value::HandValue;
 
 /// Forced-bet kinds.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum PostKind {
     Ante,
     SmallBlind,
@@ -23,9 +23,8 @@ pub enum PostKind {
 }
 
 /// Which side of the pot an award came from.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum PotSide {
     /// Undivided pot (hi-only games, or hi-lo with no qualifying low).
     Whole,
@@ -34,9 +33,8 @@ pub enum PotSide {
 }
 
 /// One observable occurrence in a hand.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[cfg_attr(feature = "serde", serde(tag = "event", rename_all = "kebab-case"))]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "event", rename_all = "kebab-case")]
 pub enum Event {
     HandStart {
         hand_no: u64,
@@ -57,7 +55,7 @@ pub enum Event {
     },
     StreetStart {
         street: u8,
-        label: &'static str,
+        label: String,
     },
     DealCommunity {
         street: u8,
@@ -102,6 +100,11 @@ pub enum Event {
     HandEnd {
         nets: Vec<i64>,
     },
+    /// Catch-all for event types this build doesn't know about yet, so old
+    /// bots don't fail hard against a newer arena. Never emitted by the
+    /// engine — it only ever arrives from deserialization.
+    #[serde(other)]
+    Unknown,
 }
 
 impl Event {

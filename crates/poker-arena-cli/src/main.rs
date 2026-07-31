@@ -419,7 +419,7 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
         proto: poker_wire::PROTO_VERSION,
         game_id: spec.id.to_string(),
         stakes,
-        betting: spec.betting.into(),
+        betting: spec.betting,
         seat_count: args.bots.len(),
         starting_stack,
         timeout_ms: timeout.map(|d| d.as_millis() as u64),

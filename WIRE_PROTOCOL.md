@@ -3,8 +3,10 @@
 This document specifies the wire protocol bots use to play in poker-arena.
 It is transport- and language-agnostic: anything that can read/write lines
 of JSON over a stream can be a bot. The Rust reference implementation lives
-in `crates/poker-wire` (`message.rs`, `framing.rs`); this document and that
-crate must never drift apart — if you change one, change the other.
+in `crates/poker-wire` (`message.rs` and `framing.rs` for the envelope,
+`card.rs` / `action.rs` / `event.rs` / `value.rs` / `game.rs` for the
+payload types); this document and that crate must never drift apart — if you
+change one, change the other.
 
 `PROTO_VERSION = 2`. **Unknown JSON fields must be ignored by bots, and
 unknown `"t"` (or event `"event"`) values must be skipped/ignored rather
@@ -82,7 +84,7 @@ Sent once, immediately after connection.
 | `proto`         | u32               | Protocol version (currently `2`).          |
 | `game_id`       | string            | Registry id, e.g. `"holdem-nl"`, `"drawmaha-27-fl"`. Bots are expected to know the named game's rules from its id. |
 | `stakes`        | `Stakes`          | The actual per-match stakes (see below).   |
-| `betting`       | `WireBetting`     | The betting structure (see below).         |
+| `betting`       | `BettingKind`     | The betting structure (see below).         |
 | `seat_count`    | usize             | Number of seats at the table.              |
 | `starting_stack`| u64               | Chips every seat starts each hand with.    |
 | `timeout_ms`    | u64 or `null`     | Per-action deadline the arena enforces, or `null` for none. |
@@ -137,7 +139,7 @@ hand to hand.
 
 ### `event`
 
-Wraps one observable [`WireEvent`](#events-wireevent) (see below) with the
+Wraps one observable [`Event`](#events-event) (see below) with the
 hand it belongs to. Events are the single source of truth for everything
 that happens in a hand; there is one `event` message per occurrence, in
 order.
@@ -145,7 +147,7 @@ order.
 | field     | type        | meaning                        |
 |-----------|-------------|----------------------------------|
 | `hand_no` | u64         | Which hand this event belongs to. |
-| `ev`      | `WireEvent` | The event payload (see below).  |
+| `ev`      | `Event`     | The event payload (see below).  |
 
 ```json
 {"t":"event","hand_no":1,"ev":{"event":"post","seat":0,"kind":"small-blind","amount":50,"all_in":false}}
@@ -271,12 +273,12 @@ The only other message a bot sends, always in reply to an `act`.
 A non-conforming action (illegal per `decision`, or malformed JSON) is a
 **fault** — see [Fault rules](#fault-rules).
 
-## Events (`WireEvent`)
+## Events (`Event`)
 
 Every `event` message's `ev` field is one of the following, tagged on
-`"event"`, kebab-case. This list mirrors `poker_core::game::Event`
-byte-for-byte — it is not a separate protocol, just the deserializable
-form of the same events the engine and hand logs use.
+`"event"`, kebab-case. This is not a separate protocol: `Event` is a single
+type in `poker-wire`, and it is literally what the engine emits and what the
+hand logs record, so the wire form and the log form cannot drift apart.
 
 | event            | fields                                                          |
 |------------------|-------------------------------------------------------------------|

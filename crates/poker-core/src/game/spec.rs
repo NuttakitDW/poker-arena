@@ -10,74 +10,9 @@ use core::ops::RangeInclusive;
 use super::action::Chips;
 use crate::eval::{EvalKind, HoleUsage};
 
-/// What a game costs to sit in. Two shapes because the families genuinely
-/// differ: blind games post blinds; stud games post antes and a bring-in.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(tag = "kind", rename_all = "kebab-case"))]
-pub enum Stakes {
-    /// Blind games (hold'em, Omaha, draw). Fixed-limit variants use the
-    /// standard convention small bet = big blind, big bet = 2 × big blind.
-    Blinds {
-        small_blind: Chips,
-        big_blind: Chips,
-    },
-    /// Stud games: per-player ante, forced bring-in, and the two bet tiers.
-    Stud {
-        ante: Chips,
-        bring_in: Chips,
-        small_bet: Chips,
-        big_bet: Chips,
-    },
-}
-
-impl Stakes {
-    /// The unit winnings are normalized in (bb/100): the big blind for
-    /// blind games, the small bet for stud.
-    pub fn rate_unit(&self) -> Chips {
-        match self {
-            Stakes::Blinds { big_blind, .. } => *big_blind,
-            Stakes::Stud { small_bet, .. } => *small_bet,
-        }
-    }
-
-    /// Small/big blind for blind games; a `Stud` stakes derives
-    /// (small_bet / 2, small_bet) so blind-game constructors are total.
-    pub fn blinds(&self) -> (Chips, Chips) {
-        match self {
-            Stakes::Blinds {
-                small_blind,
-                big_blind,
-            } => (*small_blind, *big_blind),
-            Stakes::Stud { small_bet, .. } => (small_bet / 2, *small_bet),
-        }
-    }
-
-    /// (small_bet, big_bet) tier sizes: Blinds → (bb, 2*bb); Stud → explicit.
-    pub fn tiers(&self) -> (Chips, Chips) {
-        match self {
-            Stakes::Blinds { big_blind, .. } => (*big_blind, *big_blind * 2),
-            Stakes::Stud {
-                small_bet, big_bet, ..
-            } => (*small_bet, *big_bet),
-        }
-    }
-
-    /// Normalize into stud numbers: Stud passes through; Blinds derives
-    /// ante = bb/5 (min 1), bring_in = bb/2 (min 1), small_bet = bb,
-    /// big_bet = 2*bb — exactly the current derivation.
-    pub fn to_stud(&self) -> Stakes {
-        match self {
-            Stakes::Stud { .. } => *self,
-            Stakes::Blinds { big_blind, .. } => Stakes::Stud {
-                ante: (big_blind / 5).max(1),
-                bring_in: (big_blind / 2).max(1),
-                small_bet: *big_blind,
-                big_bet: *big_blind * 2,
-            },
-        }
-    }
-}
+/// The per-match parameters that also travel to bots on the wire; defined in
+/// `poker-wire` and re-exported here so `game::spec::Stakes` keeps resolving.
+pub use poker_wire::game::{BettingKind, Stakes};
 
 /// Forced bets posted before any cards are acted on.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -99,21 +34,6 @@ pub enum ForcedBets {
         bring_in: Chips,
         low: bool,
     },
-}
-
-/// The betting structure.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
-pub enum BettingKind {
-    /// Wagers are fixed at the street's tier size; raises are capped at
-    /// `raise_cap` total wagers per round (the opening bet — or the big
-    /// blind preflop — counts as the first). `None` = uncapped.
-    FixedLimit {
-        raise_cap: Option<u8>,
-    },
-    PotLimit,
-    NoLimit,
 }
 
 /// Fixed-limit bet sizing tier for a street (`Small` = big blind sized,
