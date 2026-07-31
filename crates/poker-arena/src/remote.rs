@@ -6,24 +6,22 @@
 //! ([`WireBot::listen_tcp`]) and a spawned subprocess talking over its stdio
 //! ([`WireBot::spawn_cmd`]) — but both funnel into the transport-agnostic
 //! [`WireBot::from_transport`], which is all the protocol logic there is.
-//!
-//! Reads happen on a dedicated thread that pushes every decoded [`BotMsg`]
-//! (or the [`WireError`] that ended the stream) down an mpsc channel; `act`
-//! then enforces the per-action deadline with `recv_timeout` instead of
-//! socket timeouts, which keeps the same code working for pipes. Writes are
-//! synchronous on the calling thread.
+//! The byte-stream mechanics (reader thread, mpsc channel, process/socket
+//! teardown) live in [`crate::transport::LineTransport`]; `act` enforces the
+//! per-action deadline with `recv_timeout` on its channel instead of socket
+//! timeouts, which keeps the same code working for pipes.
 
-use std::io::{BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::process::{Child, Command, Stdio};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError, channel};
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 use std::time::{Duration, Instant};
 
 use poker_core::game::Action;
-use poker_wire::framing::{WireError, read_msg, write_msg};
+use poker_wire::framing::{WireError, write_msg};
 use poker_wire::message::{ArenaMsg, BotMsg, WireDecision};
 
 use crate::bot::{ActionRequest, Bot, BotFault, HandEnd, HandStart};
+use crate::transport::LineTransport;
 
 /// Everything that can go wrong bringing a wire bot up. Once a bot is
 /// connected and joined, failures are per-action [`BotFault`]s instead, and
@@ -50,18 +48,7 @@ pub enum WireBotError {
 /// A bot that lives behind a byte stream: a socket peer or a child process.
 pub struct WireBot {
     name: String,
-    writer: Box<dyn Write + Send>,
-    rx: Receiver<Result<BotMsg, WireError>>,
-    /// Set once the transport is known to be gone; every later `act` fails
-    /// fast with [`BotFault::Disconnected`] instead of waiting out a deadline
-    /// per decision for the rest of the match.
-    dead: bool,
-    /// Present for [`WireBot::spawn_cmd`]: killed and reaped on drop.
-    child: Option<Child>,
-    /// Present for the TCP transports: a spare handle used only to shut the
-    /// socket down on drop, so the reader thread parked in `read` wakes up
-    /// even when the peer never closes its end.
-    shutdown: Option<TcpStream>,
+    transport: LineTransport<BotMsg>,
     timeout: Option<Duration>,
     /// Hand number from the most recent `hand_start`, needed to stamp `event`
     /// messages (a bare `Event` doesn't carry one).
@@ -80,39 +67,71 @@ impl WireBot {
         hello: ArenaMsg,
         handshake_timeout: Duration,
     ) -> Result<WireBot, WireBotError> {
+        let transport = LineTransport::from_io(reader, writer);
+        WireBot::handshake(transport, hello, handshake_timeout)
+    }
+
+    /// Bind `127.0.0.1:port`, accept exactly one connection, and handshake.
+    pub fn listen_tcp(
+        port: u16,
+        hello: ArenaMsg,
+        handshake_timeout: Duration,
+    ) -> Result<WireBot, WireBotError> {
+        let listener = TcpListener::bind(("127.0.0.1", port))
+            .map_err(|source| WireBotError::Bind { port, source })?;
+        WireBot::listen_tcp_on(listener, hello, handshake_timeout)
+    }
+
+    /// Like [`WireBot::listen_tcp`], but takes a listener that is already
+    /// bound. Lets a caller pick an ephemeral port (`:0`), learn it from
+    /// `local_addr`, and hand the bot the real port without a bind/connect
+    /// race in between.
+    pub fn listen_tcp_on(
+        listener: TcpListener,
+        hello: ArenaMsg,
+        handshake_timeout: Duration,
+    ) -> Result<WireBot, WireBotError> {
+        let transport = LineTransport::listen_tcp_on(listener).map_err(WireBotError::Accept)?;
+        WireBot::handshake(transport, hello, handshake_timeout)
+    }
+
+    /// Spawn `sh -c command` with stdin/stdout piped (stderr inherited, so
+    /// bot logging lands on the arena's stderr) and handshake over its stdio.
+    /// The child is killed and reaped on drop, so a bot that ignores
+    /// `match-end` never becomes a zombie.
+    pub fn spawn_cmd(
+        command: &str,
+        hello: ArenaMsg,
+        handshake_timeout: Duration,
+    ) -> Result<WireBot, WireBotError> {
+        let transport =
+            LineTransport::spawn_cmd(command).map_err(|source| WireBotError::Spawn {
+                command: command.to_string(),
+                source,
+            })?;
+        // The child never became a bot if this fails, but nothing else will
+        // reap it: `transport`'s `Drop` (kill-before-wait) runs right here.
+        WireBot::handshake(transport, hello, handshake_timeout)
+    }
+
+    /// Send `hello` over an already-constructed transport and wait for
+    /// `join`, up to `handshake_timeout`.
+    fn handshake(
+        mut transport: LineTransport<BotMsg>,
+        hello: ArenaMsg,
+        handshake_timeout: Duration,
+    ) -> Result<WireBot, WireBotError> {
         debug_assert!(
             matches!(hello, ArenaMsg::Hello { .. }),
             "from_transport expects ArenaMsg::Hello"
         );
 
-        let (tx, rx) = channel();
-        std::thread::spawn(move || {
-            let mut reader = BufReader::new(reader);
-            loop {
-                match read_msg::<_, BotMsg>(&mut reader) {
-                    Ok(msg) => {
-                        if tx.send(Ok(msg)).is_err() {
-                            return; // the WireBot is gone; stop reading.
-                        }
-                    }
-                    // Any read error is terminal for the stream: framing is
-                    // desynced (or the peer is gone), so report it once and
-                    // let the channel close behind us.
-                    Err(err) => {
-                        let _ = tx.send(Err(err));
-                        return;
-                    }
-                }
-            }
-        });
-
-        let mut writer: Box<dyn Write + Send> = Box::new(writer);
-        write_msg(&mut writer, &hello)?;
+        write_msg(&mut transport.writer, &hello)?;
 
         let deadline = Instant::now() + handshake_timeout;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
-            match rx.recv_timeout(remaining) {
+            match transport.rx.recv_timeout(remaining) {
                 Ok(Ok(BotMsg::Join {})) => break,
                 // Forward compatibility: an unrecognized message before the
                 // join is a no-op, not an error.
@@ -138,84 +157,10 @@ impl WireBot {
             // Placeholder until the operator assigns the real name via
             // `set_name` (bots carry no identity of their own).
             name: "wire-bot".to_string(),
-            writer,
-            rx,
-            dead: false,
-            child: None,
-            shutdown: None,
+            transport,
             timeout: None,
             hand_no: 0,
         })
-    }
-
-    /// Bind `127.0.0.1:port`, accept exactly one connection, and handshake.
-    pub fn listen_tcp(
-        port: u16,
-        hello: ArenaMsg,
-        handshake_timeout: Duration,
-    ) -> Result<WireBot, WireBotError> {
-        let listener = TcpListener::bind(("127.0.0.1", port))
-            .map_err(|source| WireBotError::Bind { port, source })?;
-        WireBot::listen_tcp_on(listener, hello, handshake_timeout)
-    }
-
-    /// Like [`WireBot::listen_tcp`], but takes a listener that is already
-    /// bound. Lets a caller pick an ephemeral port (`:0`), learn it from
-    /// `local_addr`, and hand the bot the real port without a bind/connect
-    /// race in between.
-    pub fn listen_tcp_on(
-        listener: TcpListener,
-        hello: ArenaMsg,
-        handshake_timeout: Duration,
-    ) -> Result<WireBot, WireBotError> {
-        let (stream, _peer) = listener.accept().map_err(WireBotError::Accept)?;
-        // JSON lines are tiny and strictly request/response; Nagle would add
-        // a round-trip's worth of delay to every decision.
-        let _ = stream.set_nodelay(true);
-        let reader = stream.try_clone().map_err(WireBotError::Accept)?;
-        let shutdown = stream.try_clone().map_err(WireBotError::Accept)?;
-        let mut bot = WireBot::from_transport(reader, stream, hello, handshake_timeout)?;
-        bot.shutdown = Some(shutdown);
-        Ok(bot)
-    }
-
-    /// Spawn `sh -c command` with stdin/stdout piped (stderr inherited, so
-    /// bot logging lands on the arena's stderr) and handshake over its stdio.
-    /// The child is killed and reaped on drop, so a bot that ignores
-    /// `match-end` never becomes a zombie.
-    pub fn spawn_cmd(
-        command: &str,
-        hello: ArenaMsg,
-        handshake_timeout: Duration,
-    ) -> Result<WireBot, WireBotError> {
-        let mut child = Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|source| WireBotError::Spawn {
-                command: command.to_string(),
-                source,
-            })?;
-
-        // `piped()` above guarantees both handles exist.
-        let stdin = child.stdin.take().expect("stdin was piped");
-        let stdout = child.stdout.take().expect("stdout was piped");
-
-        match WireBot::from_transport(stdout, stdin, hello, handshake_timeout) {
-            Ok(mut bot) => {
-                bot.child = Some(child);
-                Ok(bot)
-            }
-            Err(err) => {
-                // The child never became a bot, so nothing else will reap it.
-                let _ = child.kill();
-                let _ = child.wait();
-                Err(err)
-            }
-        }
     }
 
     /// Per-action deadline used by [`Bot::act`]; `None` waits forever.
@@ -239,12 +184,7 @@ impl WireBot {
 
     /// Write one message, marking the bot dead if the transport rejects it.
     fn send(&mut self, msg: &ArenaMsg) {
-        if self.dead {
-            return;
-        }
-        if write_msg(&mut self.writer, msg).is_err() {
-            self.dead = true;
-        }
+        self.transport.send(msg);
     }
 
     /// Turn a reader-thread error into a fault, marking the bot dead when the
@@ -255,7 +195,7 @@ impl WireBot {
                 BotFault::Protocol(err.to_string())
             }
             WireError::Closed | WireError::Io(_) => {
-                self.dead = true;
+                self.transport.dead = true;
                 BotFault::Disconnected
             }
         }
@@ -272,12 +212,12 @@ impl WireBot {
     /// only speaks when asked and each `act` consumes exactly one answer.
     fn drain_stale(&mut self) -> Option<BotFault> {
         loop {
-            match self.rx.try_recv() {
+            match self.transport.rx.try_recv() {
                 Ok(Ok(_)) => continue,
                 Ok(Err(err)) => return Some(self.fault_from(err)),
                 Err(TryRecvError::Empty) => return None,
                 Err(TryRecvError::Disconnected) => {
-                    self.dead = true;
+                    self.transport.dead = true;
                     return Some(BotFault::Disconnected);
                 }
             }
@@ -310,7 +250,7 @@ impl Bot for WireBot {
     }
 
     fn act(&mut self, req: &ActionRequest<'_>) -> Result<Action, BotFault> {
-        if self.dead {
+        if self.transport.dead {
             return Err(BotFault::Disconnected);
         }
         if let Some(fault) = self.drain_stale() {
@@ -326,7 +266,7 @@ impl Bot for WireBot {
             deadline_ms: self.timeout.map(|d| d.as_millis() as u64),
         };
         self.send(&msg);
-        if self.dead {
+        if self.transport.dead {
             return Err(BotFault::Disconnected);
         }
 
@@ -334,9 +274,14 @@ impl Bot for WireBot {
         loop {
             let received = match deadline {
                 Some(at) => self
+                    .transport
                     .rx
                     .recv_timeout(at.saturating_duration_since(Instant::now())),
-                None => self.rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+                None => self
+                    .transport
+                    .rx
+                    .recv()
+                    .map_err(|_| RecvTimeoutError::Disconnected),
             };
             match received {
                 Ok(Ok(BotMsg::Action { action })) => return Ok(action),
@@ -346,7 +291,7 @@ impl Bot for WireBot {
                 Ok(Err(err)) => return Err(self.fault_from(err)),
                 Err(RecvTimeoutError::Timeout) => return Err(BotFault::Timeout),
                 Err(RecvTimeoutError::Disconnected) => {
-                    self.dead = true;
+                    self.transport.dead = true;
                     return Err(BotFault::Disconnected);
                 }
             }
@@ -365,21 +310,14 @@ impl Bot for WireBot {
 impl Drop for WireBot {
     fn drop(&mut self) {
         // Courtesy notice so a well-behaved bot can exit on its own; the peer
-        // may already be gone, so failures are expected and ignored.
-        if !self.dead {
-            let _ = write_msg(&mut self.writer, &ArenaMsg::MatchEnd {});
-        }
-        // Kill before wait: a bot that ignores `match-end` would otherwise
-        // hang the drop forever. Reaping here is what keeps `sh -c` children
-        // from piling up as zombies across a tournament.
-        if let Some(child) = self.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        // The reader thread exits on EOF. A child's EOF comes from the kill
-        // above; a socket peer that never closes needs this nudge.
-        if let Some(socket) = &self.shutdown {
-            let _ = socket.shutdown(std::net::Shutdown::Both);
+        // may already be gone, so failures are expected and ignored. This
+        // must run before `transport` tears the child/socket down below, or
+        // a spawned child could already be dead and unable to see it — since
+        // `transport` is a field of `WireBot`, its `Drop` (kill-before-wait
+        // the child, then socket shutdown) only runs *after* this method
+        // body returns, which keeps that ordering without any extra code.
+        if !self.transport.dead {
+            let _ = write_msg(&mut self.transport.writer, &ArenaMsg::MatchEnd {});
         }
     }
 }

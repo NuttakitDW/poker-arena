@@ -12,6 +12,7 @@ pub mod remote;
 pub mod report;
 pub mod runner;
 pub mod stat;
+mod transport;
 
 pub use behavior::BehaviorStats;
 pub use bot::{ActionRequest, Bot, BotFault, HandEnd, HandStart};
