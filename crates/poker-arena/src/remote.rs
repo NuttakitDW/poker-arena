@@ -227,8 +227,15 @@ impl WireBot {
     /// Override the joined name. The CLI uses this to apply the same
     /// duplicate-name disambiguation builtin bots get (two bots both calling
     /// themselves `caller` become `caller` and `caller-2`).
+    /// Assign the bot's final competition name and inform it with an
+    /// [`ArenaMsg::Joined`] acknowledgment. Called once per wire bot after
+    /// every seat has connected (duplicate names are disambiguated across
+    /// the whole field, so final names exist only then).
     pub fn set_name(&mut self, name: impl Into<String>) {
         self.name = name.into();
+        self.send(&ArenaMsg::Joined {
+            name: self.name.clone(),
+        });
     }
 
     /// Write one message, marking the bot dead if the transport rejects it.

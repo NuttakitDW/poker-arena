@@ -378,3 +378,44 @@ fn slow_bot_forfeits_under_forfeit_policy() {
         started.elapsed()
     );
 }
+
+/// After the field-wide name assignment, the bot receives a `joined` ack
+/// with its final (possibly disambiguated) name.
+#[test]
+fn joined_ack_carries_the_assigned_name() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let peer = std::thread::spawn(move || {
+        let stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let _hello: ArenaMsg = read_msg(&mut reader).unwrap();
+        write_msg(
+            &mut writer,
+            &BotMsg::Join {
+                name: "caller".to_string(),
+            },
+        )
+        .unwrap();
+        // The ack arrives after the arena finishes seating everyone.
+        let ack: ArenaMsg = read_msg(&mut reader).unwrap();
+        match ack {
+            ArenaMsg::Joined { name } => name,
+            other => panic!("expected joined ack, got {other:?}"),
+        }
+    });
+
+    let mut bot = WireBot::listen_tcp_on(
+        listener,
+        hello(Some(5_000)),
+        std::time::Duration::from_secs(5),
+    )
+    .unwrap();
+    assert_eq!(bot.name(), "caller");
+    bot.set_name("caller-2");
+    assert_eq!(bot.name(), "caller-2");
+
+    let acked = peer.join().unwrap();
+    assert_eq!(acked, "caller-2", "the ack must carry the assigned name");
+}

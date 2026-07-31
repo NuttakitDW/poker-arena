@@ -84,6 +84,12 @@ pub enum ArenaMsg {
         starting_stack: u64,
         timeout_ms: Option<u64>,
     },
+    /// Handshake acknowledgment: the arena-assigned name this bot competes
+    /// under. May differ from the name sent in `join` (duplicate names are
+    /// disambiguated with `-2`, `-3`… suffixes across the whole field), and
+    /// arrives only once every seat has connected — treat it as the
+    /// authoritative identity in all match records.
+    Joined { name: String },
     /// A new hand is starting; `seat` is where this bot sits for this hand.
     /// The arena always seats the button at seat 0 and rotates *bots*
     /// between hands, so a seat number is also a position: seat 0 is the

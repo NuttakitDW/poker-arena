@@ -46,7 +46,15 @@ identical either way.
    per-match parameters that can't be derived from that id, seat count,
    starting stack, and the per-action timeout it will enforce).
 2. The bot replies with `join`, giving its display name.
-3. From then on, the arena drives the conversation: `hand-start` at the top
+3. Once **every** seat has connected, the arena sends each bot a `joined`
+   acknowledgment carrying its final competition name. This may differ
+   from the requested name: duplicate names across the field are
+   disambiguated with `-2`, `-3`… suffixes, first-come keeps the bare
+   name. Treat it as your authoritative identity in all match records
+   (results, standings, log seat headers). Because names are assigned
+   field-wide, there may be a delay between your `join` and the `joined`
+   while other bots connect.
+4. From then on, the arena drives the conversation: `hand-start` at the top
    of each hand, `event` for everything observable, `act` when it's this
    bot's turn (which the bot answers with `action`), `hand-end` at the
    bottom of each hand, and finally `match-end` when the match is over and
@@ -110,6 +118,18 @@ family:
 
 ```json
 {"t":"hello","proto":1,"game_id":"stud-fl","stakes":{"kind":"stud","ante":20,"bring_in":50,"small_bet":100,"big_bet":200},"betting":{"kind":"fixed-limit","raise_cap":4},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
+```
+
+### `joined`
+
+Handshake acknowledgment; sent once, after every seat has connected.
+
+| field  | type   | meaning                                  |
+|--------|--------|-------------------------------------------|
+| `name` | string | This bot's final, arena-assigned name.    |
+
+```json
+{"t":"joined","name":"caller-2"}
 ```
 
 ### `hand-start`

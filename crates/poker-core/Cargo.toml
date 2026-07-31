@@ -10,5 +10,16 @@ poker-wire = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
 
+[dev-dependencies]
+criterion = { workspace = true }
+
 [features]
 serde = ["dep:serde"]
+
+[[bench]]
+name = "eval"
+harness = false
+
+[[bench]]
+name = "engine"
+harness = false

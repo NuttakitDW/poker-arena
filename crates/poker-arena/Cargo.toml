@@ -12,6 +12,13 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+criterion = { workspace = true }
+
 # `wire-caller` (src/bin/) stays in this package: its integration tests find
 # it via CARGO_BIN_EXE_, which only resolves within the defining package.
 # The user-facing `poker-arena` binary lives in the poker-arena-cli crate.
+
+[[bench]]
+name = "throughput"
+harness = false
