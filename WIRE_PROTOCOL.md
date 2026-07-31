@@ -138,8 +138,9 @@ arrives in the event stream that follows.
 **The button is always seat 0.** The arena rotates *bots* through seats
 between hands (that is the variance-reduction mechanism), never the button,
 so a seat number is also a position: seat 0 is the button, seat 1 the small
-blind, seat 2 the big blind, and so on. Expect your `seat` to change from
-hand to hand.
+blind, seat 2 the big blind, and so on — except heads-up, where standard
+rules apply: seat 0 (the button) posts the small blind and seat 1 the big
+blind. Expect your `seat` to change from hand to hand.
 
 | field     | type  | meaning                             |
 |-----------|-------|--------------------------------------|
@@ -467,33 +468,51 @@ summary line adds `sample_first_hands`, `top_pots`, and
 
 ## Example transcript
 
-A complete heads-up no-limit hold'em hand from one bot's point of view
-(seat 0, dealt `As Kd`), abbreviated to fit — folds preflop are shown so
-the whole hand-end-to-hand-end cycle fits in ~20 lines:
+A complete heads-up no-limit hold'em session, **captured verbatim from a
+real match** (one hand, both bots checking/calling to showdown), from the
+bot at seat 0's point of view. `<` marks arena→bot lines, `>` bot→arena.
+Note the heads-up blind convention: seat 0 is the button *and posts the
+small blind*, acts first preflop, and acts last on every later street.
 
-```json
-{"t":"hello","proto":1,"game_id":"holdem-nl","stakes":{"kind":"blinds","small_blind":50,"big_blind":100,"ante":0},"betting":{"kind":"no-limit"},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
-{"t":"join"}
-{"t":"joined","name":"check-call-bot"}
-{"t":"hand-start","hand_no":1,"seat":0}
-{"t":"event","hand_no":1,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}
-{"t":"event","hand_no":1,"ev":{"event":"post","seat":0,"kind":"big-blind","amount":100,"all_in":false}}
-{"t":"event","hand_no":1,"ev":{"event":"deal-hole","seat":0,"cards":["As","Kd"],"count":2}}
-{"t":"event","hand_no":1,"ev":{"event":"deal-hole","seat":1,"cards":[],"count":2}}
-{"t":"event","hand_no":1,"ev":{"event":"street-start","street":0,"label":"preflop"}}
-{"t":"event","hand_no":1,"ev":{"event":"acted","seat":1,"action":{"kind":"call"},"street_commit":100,"all_in":false}}
-{"t":"act","hand_no":1,"seat":0,"decision":{"kind":"wager","fold":false,"check":true,"raise":{"min_to":200,"max_to":10000}},"deadline_ms":5000}
-{"t":"action","action":{"kind":"check"}}
-{"t":"event","hand_no":1,"ev":{"event":"street-start","street":1,"label":"flop"}}
-{"t":"event","hand_no":1,"ev":{"event":"deal-community","street":1,"cards":["2c","7h","9s"]}}
-{"t":"act","hand_no":1,"seat":0,"decision":{"kind":"wager","fold":false,"check":true,"bet":{"min_to":100,"max_to":9900}},"deadline_ms":5000}
-{"t":"action","action":{"kind":"bet","to":150}}
-{"t":"event","hand_no":1,"ev":{"event":"acted","seat":0,"action":{"kind":"bet","to":150},"street_commit":150,"all_in":false}}
-{"t":"event","hand_no":1,"ev":{"event":"acted","seat":1,"action":{"kind":"fold"},"street_commit":0,"all_in":false}}
-{"t":"event","hand_no":1,"ev":{"event":"pot-awarded","pot":0,"side":"whole","winners":[[0,350]]}}
-{"t":"event","hand_no":1,"ev":{"event":"hand-end","nets":[150,-150]}}
-{"t":"hand-end","hand_no":1,"nets":[150,-150]}
-{"t":"match-end"}
+```text
+< {"t":"hello","proto":1,"game_id":"holdem-nl","stakes":{"kind":"blinds","small_blind":50,"big_blind":100,"ante":0},"betting":{"kind":"no-limit"},"seat_count":2,"starting_stack":10000,"timeout_ms":1000}
+> {"t":"join"}
+< {"t":"joined","name":"check-call-bot"}
+< {"t":"hand-start","hand_no":0,"seat":0}
+< {"t":"event","hand_no":0,"ev":{"event":"hand-start","hand_no":0,"button":0,"stacks":[10000,10000]}}
+< {"t":"event","hand_no":0,"ev":{"event":"post","seat":0,"kind":"small-blind","amount":50,"all_in":false}}
+< {"t":"event","hand_no":0,"ev":{"event":"post","seat":1,"kind":"big-blind","amount":100,"all_in":false}}
+< {"t":"event","hand_no":0,"ev":{"event":"street-start","street":0,"label":"preflop"}}
+< {"t":"event","hand_no":0,"ev":{"event":"deal-hole","seat":1,"cards":[],"count":2}}
+< {"t":"event","hand_no":0,"ev":{"event":"deal-hole","seat":0,"cards":["8h","6c"],"count":2}}
+< {"t":"act","hand_no":0,"seat":0,"decision":{"kind":"wager","fold":true,"check":false,"call":50,"raise":{"min_to":200,"max_to":10000}},"deadline_ms":1000}
+> {"t":"action","action":{"kind":"call"}}
+< {"t":"event","hand_no":0,"ev":{"event":"acted","seat":0,"action":{"kind":"call"},"street_commit":100,"all_in":false}}
+< {"t":"event","hand_no":0,"ev":{"event":"acted","seat":1,"action":{"kind":"check"},"street_commit":100,"all_in":false}}
+< {"t":"event","hand_no":0,"ev":{"event":"street-start","street":1,"label":"flop"}}
+< {"t":"event","hand_no":0,"ev":{"event":"deal-community","street":1,"cards":["Qh","6h","7h"]}}
+< {"t":"event","hand_no":0,"ev":{"event":"acted","seat":1,"action":{"kind":"check"},"street_commit":0,"all_in":false}}
+< {"t":"act","hand_no":0,"seat":0,"decision":{"kind":"wager","fold":false,"check":true,"bet":{"min_to":100,"max_to":9900}},"deadline_ms":1000}
+> {"t":"action","action":{"kind":"check"}}
+< {"t":"event","hand_no":0,"ev":{"event":"acted","seat":0,"action":{"kind":"check"},"street_commit":0,"all_in":false}}
+< {"t":"event","hand_no":0,"ev":{"event":"street-start","street":2,"label":"turn"}}
+< {"t":"event","hand_no":0,"ev":{"event":"deal-community","street":2,"cards":["3s"]}}
+< {"t":"event","hand_no":0,"ev":{"event":"acted","seat":1,"action":{"kind":"check"},"street_commit":0,"all_in":false}}
+< {"t":"act","hand_no":0,"seat":0,"decision":{"kind":"wager","fold":false,"check":true,"bet":{"min_to":100,"max_to":9900}},"deadline_ms":1000}
+> {"t":"action","action":{"kind":"check"}}
+< {"t":"event","hand_no":0,"ev":{"event":"acted","seat":0,"action":{"kind":"check"},"street_commit":0,"all_in":false}}
+< {"t":"event","hand_no":0,"ev":{"event":"street-start","street":3,"label":"river"}}
+< {"t":"event","hand_no":0,"ev":{"event":"deal-community","street":3,"cards":["Js"]}}
+< {"t":"event","hand_no":0,"ev":{"event":"acted","seat":1,"action":{"kind":"check"},"street_commit":0,"all_in":false}}
+< {"t":"act","hand_no":0,"seat":0,"decision":{"kind":"wager","fold":false,"check":true,"bet":{"min_to":100,"max_to":9900}},"deadline_ms":1000}
+> {"t":"action","action":{"kind":"check"}}
+< {"t":"event","hand_no":0,"ev":{"event":"acted","seat":0,"action":{"kind":"check"},"street_commit":0,"all_in":false}}
+< {"t":"event","hand_no":0,"ev":{"event":"showdown-show","seat":1,"cards":["Jd","4s"],"hi":1680704,"lo":null}}
+< {"t":"event","hand_no":0,"ev":{"event":"showdown-show","seat":0,"cards":["8h","6c"],"hi":1354080,"lo":null}}
+< {"t":"event","hand_no":0,"ev":{"event":"pot-awarded","pot":0,"side":"whole","winners":[[1,200]]}}
+< {"t":"event","hand_no":0,"ev":{"event":"hand-end","nets":[-100,100]}}
+< {"t":"hand-end","hand_no":0,"nets":[-100,100]}
+< {"t":"match-end"}
 ```
 
 ## Appendix: a minimal Python bot
