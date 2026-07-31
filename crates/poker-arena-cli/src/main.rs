@@ -12,7 +12,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use poker_arena::Bot;
 use poker_arena::builtin::{Caller, Folder, Random, Shover};
 use poker_arena::config::{DealingMode, FaultPolicy, MatchConfig};
-use poker_arena::log::{EventSink, JsonLog};
+use poker_arena::log::{EventSink, JsonLog, LogSelection, SelectiveLog};
 use poker_arena::remote::WireBot;
 use poker_arena::runner::{Progress, run_match};
 use poker_core::game::{BettingKind, GameSpec, Stakes};
@@ -126,9 +126,33 @@ struct RunArgs {
     #[arg(long = "bot")]
     bots: Vec<String>,
 
-    /// Write the unredacted hand history as JSON lines to this file.
+    /// Write the unredacted hand history as JSON lines to this file. By
+    /// default every hand is written as it's played. If any of
+    /// --log-sample / --log-top-pots / --log-faults is given, selective
+    /// mode kicks in instead: only the chosen hands are kept, and the whole
+    /// file is written at once when the match ends (nothing appears until
+    /// then). Requires --log.
     #[arg(long)]
     log: Option<PathBuf>,
+
+    /// Selective log: keep every Nth deck, all rotations of it together
+    /// (e.g. duplicate heads-up keeps both mirror hands of a kept deck) —
+    /// in seeded mode a deck is one hand. N >= 1. Requires --log.
+    #[arg(long)]
+    log_sample: Option<u64>,
+
+    /// Selective log: keep the K biggest-pot hands over the whole match
+    /// (global top K). Requires --log.
+    #[arg(long)]
+    log_top_pots: Option<usize>,
+
+    /// Selective log: cap on hands kept as fault evidence (the first K
+    /// hands any bot faulted in); forfeited hands are always kept
+    /// regardless of this cap. Only meaningful once selective mode is on
+    /// (--log-sample and/or --log-top-pots, or this flag itself); defaults
+    /// to 100 once selective mode is on. Requires --log.
+    #[arg(long)]
+    log_faults: Option<u64>,
 
     /// Print progress to stderr every N decks (0 = off).
     #[arg(long, default_value_t = 0)]
@@ -466,15 +490,37 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
         timeout,
     };
 
-    let mut log_writer = match &args.log {
+    let selective =
+        args.log_sample.is_some() || args.log_top_pots.is_some() || args.log_faults.is_some();
+    if selective && args.log.is_none() {
+        return Err("--log-sample/--log-top-pots/--log-faults require --log FILE".to_string());
+    }
+    if args.log_sample == Some(0) {
+        return Err("--log-sample must be >= 1".to_string());
+    }
+
+    let mut log_sink: Option<Box<dyn EventSink>> = match &args.log {
         Some(path) => {
             let file = File::create(path)
                 .map_err(|e| format!("failed to create log file {}: {e}", path.display()))?;
-            Some(JsonLog::new(BufWriter::new(file)))
+            let writer = BufWriter::new(file);
+            if selective {
+                let selection = LogSelection {
+                    sample_every_decks: args.log_sample,
+                    top_pots: args.log_top_pots,
+                    fault_hands: args.log_faults.unwrap_or(100),
+                };
+                Some(Box::new(SelectiveLog::new(writer, selection)))
+            } else {
+                Some(Box::new(JsonLog::new(writer)))
+            }
         }
         None => None,
     };
-    let sink: Option<&mut dyn EventSink> = log_writer.as_mut().map(|l| l as &mut dyn EventSink);
+    let sink: Option<&mut dyn EventSink> = match &mut log_sink {
+        Some(boxed) => Some(boxed.as_mut()),
+        None => None,
+    };
 
     if args.progress_secs < 0.0 || !args.progress_secs.is_finite() {
         return Err("--progress-secs must be a finite number >= 0".to_string());

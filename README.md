@@ -54,7 +54,10 @@ carrying the seed, config, and per-bot results; `--progress-json` (cadence via
 `--progress-every N` decks and/or `--progress-secs S`) additionally
 streams interim standings as JSON lines
 on stderr — a live leaderboard with tightening confidence intervals — and
-per-hand detail streams separately via `--log` as JSON lines.
+per-hand detail streams separately via `--log` as JSON lines. Selective
+logging (`--log-sample`, `--log-top-pots`, `--log-faults`) keeps
+rotation-set samples, the biggest pots, and fault evidence, written at
+match end.
 
 ## Out-of-process bots (any language)
 

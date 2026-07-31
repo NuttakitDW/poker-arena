@@ -16,7 +16,7 @@ pub mod stat;
 pub use behavior::BehaviorStats;
 pub use bot::{ActionRequest, Bot, BotFault, HandEnd, HandStart};
 pub use config::{DealingMode, FaultPolicy, MatchConfig};
-pub use log::{EventSink, JsonLog};
+pub use log::{EventSink, HandMeta, JsonLog, LogSelection, SelectiveLog};
 pub use remote::{WireBot, WireBotError};
 pub use report::{MatchReport, ProgressReport, match_report, progress_report};
 pub use runner::{BotOutcome, MatchError, MatchResult, Progress, Standing, run_match};

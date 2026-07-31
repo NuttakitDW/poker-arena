@@ -122,6 +122,9 @@ fn omaha8_produces_split_pots() {
     let split_sides: Vec<String> = text
         .lines()
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        // Skip the header line opening each hand and the trailing
+        // `log_summary` line — neither carries an "ev" key.
+        .filter(|v| v.get("ev").is_some())
         .filter(|v| v["ev"]["event"] == "pot-awarded")
         .filter_map(|v| v["ev"]["side"].as_str().map(str::to_string))
         .filter(|side| side == "hi" || side == "lo")

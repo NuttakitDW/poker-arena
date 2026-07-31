@@ -23,7 +23,7 @@ const SEATING_SALT: u64 = 0x5345_4154_494E_4731;
 use crate::behavior::BehaviorStats;
 use crate::bot::{ActionRequest, Bot, HandEnd, HandStart};
 use crate::config::{DealingMode, FaultPolicy, MatchConfig};
-use crate::log::EventSink;
+use crate::log::{EventSink, HandMeta};
 use crate::stat::RateStats;
 
 /// Reported to an optional progress callback after each deck finishes.
@@ -187,6 +187,7 @@ pub fn run_match(
                 &mut sink,
                 &mut faults,
                 hand_no,
+                deck_no,
                 deck.clone(),
                 &seating,
                 r,
@@ -240,6 +241,10 @@ pub fn run_match(
                 standings: &standings,
             });
         }
+    }
+
+    if let Some(s) = &mut sink {
+        s.finish();
     }
 
     let outcomes = (0..n)
@@ -322,6 +327,7 @@ fn play_hand(
     sink: &mut Option<&mut dyn EventSink>,
     faults: &mut [u64],
     hand_no: u64,
+    deck_no: u64,
     deck: Deck,
     seating: &Seating,
     r: usize,
@@ -338,7 +344,12 @@ fn play_hand(
     let mut hand_events: Vec<Event> = Vec::new();
 
     if let Some(s) = sink {
-        s.hand_start(hand_no);
+        // `seats[seat]` = the bot name sitting there this hand; only worth
+        // building when a sink is actually watching.
+        let seats: Vec<String> = (0..n)
+            .map(|seat| bots[seating.bot_of_seat(r, seat)].name().to_string())
+            .collect();
+        s.hand_start(hand_no, deck_no, &seats);
     }
     for (b, bot) in bots.iter_mut().enumerate() {
         bot.hand_start(&HandStart {
@@ -353,6 +364,9 @@ fn play_hand(
     hand_events.extend(ev0);
 
     let mut forfeited_by = None;
+    // True as soon as any bot faults this hand, whether or not the fault
+    // policy substitutes an action and lets the hand continue.
+    let mut hand_faulted = false;
     while let Some(seat) = state.to_act() {
         let bot = seating.bot_of_seat(r, seat);
         let legal = state
@@ -385,6 +399,7 @@ fn play_hand(
             Ok(events) => events,
             Err(()) => {
                 faults[bot] += 1;
+                hand_faulted = true;
                 match config.fault_policy {
                     FaultPolicy::CheckFold => {
                         // The minimal legal action for the decision family in
@@ -417,6 +432,15 @@ fn play_hand(
     }
 
     if let Some(offender) = forfeited_by {
+        // The evidence hand is closed out even though it never settled: a
+        // buffered sink needs the boundary to decide whether to keep it.
+        if let Some(s) = sink {
+            s.hand_end(&HandMeta {
+                pot_total: state.pot_total(),
+                faulted: true,
+                forfeited: true,
+            });
+        }
         return Ok(HandOutcome {
             nets: vec![0; n],
             forfeited_by: Some(offender),
@@ -439,7 +463,11 @@ fn play_hand(
         });
     }
     if let Some(s) = sink {
-        s.hand_end();
+        s.hand_end(&HandMeta {
+            pot_total: state.pot_total(),
+            faulted: hand_faulted,
+            forfeited: false,
+        });
     }
 
     Ok(HandOutcome {
@@ -829,5 +857,303 @@ mod tests {
                 assert_eq!(s.2, *deck, "one observation per completed deck");
             }
         }
+    }
+
+    // ---- (g) hand-history logging ----
+
+    use crate::log::{JsonLog, LogSelection, SelectiveLog};
+
+    /// Parses a log buffer into one [`serde_json::Value`] per line.
+    fn parse_lines(buf: Vec<u8>) -> Vec<serde_json::Value> {
+        let text = String::from_utf8(buf).expect("log must be valid UTF-8");
+        text.lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    }
+
+    /// A line is a hand header iff it carries a "seats" field (event lines
+    /// carry "ev"; the trailing summary line carries "log_summary").
+    fn is_header(v: &serde_json::Value) -> bool {
+        v.get("seats").is_some()
+    }
+
+    fn is_event(v: &serde_json::Value) -> bool {
+        v.get("ev").is_some()
+    }
+
+    /// Records `(hand_no, pot_total)` for every hand, to independently
+    /// verify `SelectiveLog`'s top-pots selection against.
+    #[derive(Default)]
+    struct PotRecorder {
+        current: u64,
+        pots: Vec<(u64, u64)>,
+    }
+
+    impl EventSink for PotRecorder {
+        fn hand_start(&mut self, hand_no: u64, _deck_no: u64, _seats: &[String]) {
+            self.current = hand_no;
+        }
+        fn event(&mut self, _ev: &Event) {}
+        fn hand_end(&mut self, meta: &HandMeta) {
+            self.pots.push((self.current, meta.pot_total));
+        }
+    }
+
+    #[test]
+    fn full_log_headers_rotate_seats_and_summary_matches() {
+        let config = nl_config(4, 5, DealingMode::Duplicate, FaultPolicy::CheckFold);
+        let mut bots: Vec<Box<dyn Bot>> = vec![
+            Box::new(Caller::new("caller")),
+            Box::new(Random::new("random", 3)),
+        ];
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let mut log = JsonLog::new(&mut buf);
+            let sink: &mut dyn EventSink = &mut log;
+            let result = run_match(&config, &mut bots, Some(sink), None).unwrap();
+            assert_eq!(result.hands_played, 8, "4 decks * 2 rotations");
+        }
+
+        let parsed = parse_lines(buf);
+        let headers: Vec<&serde_json::Value> = parsed.iter().filter(|v| is_header(v)).collect();
+        assert_eq!(headers.len(), 8);
+        for (i, h) in headers.iter().enumerate() {
+            assert_eq!(h["hand"], i as u64);
+            assert!(h.get("kept").is_none(), "full log headers carry no tags");
+            let seats = h["seats"].as_array().unwrap();
+            assert_eq!(seats.len(), 2);
+        }
+        // Seating rotates: seat assignment for hand 0 (rotation 0) must
+        // differ from hand 1 (rotation 1, same deck).
+        assert_ne!(headers[0]["seats"], headers[1]["seats"]);
+
+        let last = parsed.last().unwrap();
+        assert_eq!(last["log_summary"]["hands_seen"], 8);
+        assert_eq!(last["log_summary"]["hands_kept"], 8);
+    }
+
+    #[test]
+    fn selective_sample_keeps_every_nth_deck_with_all_rotations() {
+        let config = nl_config(10, 5, DealingMode::Duplicate, FaultPolicy::CheckFold);
+        let mut bots: Vec<Box<dyn Bot>> = vec![
+            Box::new(Caller::new("caller")),
+            Box::new(Random::new("random", 3)),
+        ];
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let mut log = SelectiveLog::new(
+                &mut buf,
+                LogSelection {
+                    sample_every_decks: Some(5),
+                    top_pots: None,
+                    fault_hands: 100,
+                },
+            );
+            let sink: &mut dyn EventSink = &mut log;
+            let result = run_match(&config, &mut bots, Some(sink), None).unwrap();
+            assert_eq!(result.hands_played, 20, "10 decks * 2 rotations");
+        }
+
+        let parsed = parse_lines(buf);
+        let headers: Vec<&serde_json::Value> = parsed.iter().filter(|v| is_header(v)).collect();
+        // Deck 0 and deck 5 kept, both rotations each -> hands 0,1,10,11.
+        let hand_nos: Vec<u64> = headers
+            .iter()
+            .map(|h| h["hand"].as_u64().unwrap())
+            .collect();
+        assert_eq!(hand_nos, vec![0, 1, 10, 11], "ascending hand_no order");
+        for h in &headers {
+            assert_eq!(h["kept"], serde_json::json!(["sample"]));
+        }
+
+        let last = parsed.last().unwrap();
+        assert_eq!(last["log_summary"]["hands_seen"], 20);
+        assert_eq!(last["log_summary"]["hands_kept"], 4);
+        assert_eq!(last["log_summary"]["sample_every_decks"], 5);
+        assert_eq!(last["log_summary"]["top_pots"], serde_json::Value::Null);
+        assert_eq!(last["log_summary"]["fault_hands_kept"], 0);
+    }
+
+    #[test]
+    fn selective_top_pots_keeps_the_verifiably_largest_k() {
+        // Random introduces genuine per-hand pot-size variety (fold small,
+        // raise big) on top of Shover/Caller's all-in pressure.
+        let config = nl_config(40, 17, DealingMode::Seeded, FaultPolicy::CheckFold);
+        let make_bots = || -> Vec<Box<dyn Bot>> {
+            vec![
+                Box::new(Shover::new("shover")),
+                Box::new(Caller::new("caller")),
+                Box::new(Random::new("random", 9)),
+            ]
+        };
+
+        // Pass 1: record every hand's pot, independently of SelectiveLog.
+        let mut recorder = PotRecorder::default();
+        {
+            let mut bots = make_bots();
+            let sink: &mut dyn EventSink = &mut recorder;
+            run_match(&config, &mut bots, Some(sink), None).unwrap();
+        }
+        let mut by_pot = recorder.pots.clone();
+        // Same tie-break the implementation uses: pot desc, hand_no asc.
+        by_pot.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        let expected: std::collections::BTreeSet<u64> =
+            by_pot.iter().take(3).map(|(hand_no, _)| *hand_no).collect();
+        assert_eq!(expected.len(), 3);
+
+        // Pass 2: same seed/config -> identical per-hand pots, so the
+        // selective log's top-3 must match `expected` exactly.
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let mut bots = make_bots();
+            let mut log = SelectiveLog::new(
+                &mut buf,
+                LogSelection {
+                    sample_every_decks: None,
+                    top_pots: Some(3),
+                    fault_hands: 100,
+                },
+            );
+            let sink: &mut dyn EventSink = &mut log;
+            run_match(&config, &mut bots, Some(sink), None).unwrap();
+        }
+        let parsed = parse_lines(buf);
+        let headers: Vec<&serde_json::Value> = parsed.iter().filter(|v| is_header(v)).collect();
+        assert_eq!(headers.len(), 3);
+        let kept: std::collections::BTreeSet<u64> = headers
+            .iter()
+            .map(|h| h["hand"].as_u64().unwrap())
+            .collect();
+        assert_eq!(kept, expected, "must keep exactly the 3 largest pots");
+        for h in &headers {
+            assert_eq!(h["kept"], serde_json::json!(["top-pot"]));
+        }
+    }
+
+    #[test]
+    fn selective_sample_and_top_pot_union_tags_both_reasons() {
+        // sample_every_decks(1) keeps every hand, guaranteeing every top-pot
+        // hand also carries "sample" — the union case.
+        let config = nl_config(20, 4, DealingMode::Seeded, FaultPolicy::CheckFold);
+        let mut bots: Vec<Box<dyn Bot>> = vec![
+            Box::new(Shover::new("shover")),
+            Box::new(Random::new("random", 2)),
+        ];
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let mut log = SelectiveLog::new(
+                &mut buf,
+                LogSelection {
+                    sample_every_decks: Some(1),
+                    top_pots: Some(2),
+                    fault_hands: 100,
+                },
+            );
+            let sink: &mut dyn EventSink = &mut log;
+            run_match(&config, &mut bots, Some(sink), None).unwrap();
+        }
+        let parsed = parse_lines(buf);
+        let headers: Vec<&serde_json::Value> = parsed.iter().filter(|v| is_header(v)).collect();
+        assert_eq!(headers.len(), 20, "sample(1) keeps every hand");
+        let both: usize = headers
+            .iter()
+            .filter(|h| h["kept"] == serde_json::json!(["sample", "top-pot"]))
+            .count();
+        assert_eq!(both, 2, "both top-pot hands must also carry sample");
+        let sample_only: usize = headers
+            .iter()
+            .filter(|h| h["kept"] == serde_json::json!(["sample"]))
+            .count();
+        assert_eq!(sample_only, 18);
+    }
+
+    #[test]
+    fn selective_fault_cap_and_forfeit_always_kept() {
+        let config = nl_config(10, 21, DealingMode::Seeded, FaultPolicy::CheckFold);
+        let mut bots: Vec<Box<dyn Bot>> = vec![
+            Box::new(AlwaysIllegal {
+                name: "illegal".into(),
+            }),
+            Box::new(Caller::new("caller")),
+        ];
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let mut log = SelectiveLog::new(
+                &mut buf,
+                LogSelection {
+                    sample_every_decks: None,
+                    top_pots: None,
+                    fault_hands: 2,
+                },
+            );
+            let sink: &mut dyn EventSink = &mut log;
+            let result = run_match(&config, &mut bots, Some(sink), None).unwrap();
+            assert_eq!(result.hands_played, 10);
+            assert!(
+                result.outcomes[0].faults > 2,
+                "the illegal bot must fault more than the cap over 10 hands"
+            );
+        }
+        let parsed = parse_lines(buf);
+        let headers: Vec<&serde_json::Value> = parsed.iter().filter(|v| is_header(v)).collect();
+        assert_eq!(headers.len(), 2, "fault cap limits kept hands to 2");
+        for h in &headers {
+            assert_eq!(h["kept"], serde_json::json!(["fault"]));
+        }
+        // Every kept hand's events form a complete hand_start -> hand_end
+        // (a `hand-start` engine event, at minimum).
+        for h in &headers {
+            let hand_no = h["hand"].as_u64().unwrap();
+            let events: Vec<&serde_json::Value> = parsed
+                .iter()
+                .filter(|v| is_event(v) && v["hand"] == hand_no)
+                .collect();
+            assert!(!events.is_empty());
+            assert_eq!(events[0]["ev"]["event"], "hand-start");
+        }
+
+        let last = parsed.last().unwrap();
+        assert_eq!(last["log_summary"]["fault_hands_kept"], 2);
+    }
+
+    #[test]
+    fn selective_forfeit_hand_is_kept_with_partial_events_even_with_zero_fault_cap() {
+        let config = nl_config(20, 21, DealingMode::Seeded, FaultPolicy::Forfeit);
+        let mut bots: Vec<Box<dyn Bot>> = vec![
+            Box::new(AlwaysIllegal {
+                name: "illegal".into(),
+            }),
+            Box::new(Caller::new("caller")),
+        ];
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let mut log = SelectiveLog::new(
+                &mut buf,
+                LogSelection {
+                    sample_every_decks: None,
+                    top_pots: None,
+                    fault_hands: 0,
+                },
+            );
+            let sink: &mut dyn EventSink = &mut log;
+            let result = run_match(&config, &mut bots, Some(sink), None).unwrap();
+            assert!(result.forfeited_by.is_some());
+        }
+        let parsed = parse_lines(buf);
+        let headers: Vec<&serde_json::Value> = parsed.iter().filter(|v| is_header(v)).collect();
+        assert_eq!(headers.len(), 1, "only the forfeited hand is kept");
+        assert_eq!(headers[0]["kept"], serde_json::json!(["forfeit"]));
+
+        // The forfeited hand may be partial, but it must still have a
+        // header and at least one event line.
+        let hand_no = headers[0]["hand"].as_u64().unwrap();
+        let events: Vec<&serde_json::Value> = parsed
+            .iter()
+            .filter(|v| is_event(v) && v["hand"] == hand_no)
+            .collect();
+        assert!(
+            !events.is_empty(),
+            "a forfeited hand still logs whatever events happened before the forfeit"
+        );
     }
 }

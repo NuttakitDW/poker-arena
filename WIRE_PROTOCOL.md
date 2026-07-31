@@ -432,7 +432,20 @@ whose intervals tighten as evidence accumulates:
 
 Field meanings match the final report. Per-hand detail is a separate
 stream: `--log FILE` writes the unredacted event log as JSON lines (the
-`{"hand":N,"ev":{...}}` shape used throughout `transcripts/`).
+`{"hand":N,"ev":{...}}` shape used throughout `transcripts/`), bracketed by
+a `{"hand":N,"deck":D,"seats":["caller","random-2"]}` header line opening
+each hand (`deck` groups duplicate rotations of the same deck; `seats[s]`
+is the bot at seat `s`) and, once from the CLI, a trailing
+`{"log_summary":{"hands_seen":H,"hands_kept":H}}` line.
+
+`--log-sample N` / `--log-top-pots K` / `--log-faults K` switch `--log`
+into selective mode: only sampled rotation sets (every Nth deck, all
+rotations), the K biggest-pot hands, and the first K fault hands
+(forfeited hands always kept) are written, as a batch when the match ends
+rather than incrementally. Selective headers add a `"kept"` array naming
+the reasons, e.g. `{"hand":7,"deck":3,"seats":[...],"kept":["sample",
+"top-pot"]}`, and the summary line adds `sample_every_decks`, `top_pots`,
+and `fault_hands_kept`.
 
 ## Example transcript
 
