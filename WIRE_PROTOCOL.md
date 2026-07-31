@@ -355,9 +355,9 @@ arena, so `showdown-show` is never redacted.
 - Reply with `discard`: `cards` must be distinct cards you actually hold,
   and at most `max_discards`. An empty list is standing pat.
 - Replacements are dealt immediately and observed via the `draw-result`
-  event (`discarded` count public, `drawn` cards private — redacted like
-  `deal-hole` for other seats). The next street's betting round then opens
-  as usual.
+  event (`discarded` and `drawn` card lists private to the drawing seat,
+  the `count` public — redacted like `deal-hole` for other seats). The
+  next street's betting round then opens as usual.
 
 ```json
 {"t":"act","hand_no":4,"seat":1,"decision":{"kind":"draw","max_discards":3},"deadline_ms":5000}
@@ -473,7 +473,8 @@ the whole hand-end-to-hand-end cycle fits in ~20 lines:
 
 ```json
 {"t":"hello","proto":1,"game_id":"holdem-nl","stakes":{"kind":"blinds","small_blind":50,"big_blind":100,"ante":0},"betting":{"kind":"no-limit"},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
-{"t":"join","name":"check-call-bot"}
+{"t":"join"}
+{"t":"joined","name":"check-call-bot"}
 {"t":"hand-start","hand_no":1,"seat":0}
 {"t":"event","hand_no":1,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}
 {"t":"event","hand_no":1,"ev":{"event":"post","seat":0,"kind":"big-blind","amount":100,"all_in":false}}

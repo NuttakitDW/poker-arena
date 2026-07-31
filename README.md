@@ -75,7 +75,9 @@ cargo run --release -p poker-arena-cli -- run \
 ```
 
 `cmd:"COMMAND"` spawns the bot and talks over its stdio; `tcp:PORT` listens
-on 127.0.0.1 and waits for the bot to connect. Per-action deadlines are
+on 127.0.0.1 and waits for the bot to connect. Prefix a spec with `NAME@`
+(`alice@cmd:"python3 bot.py"`) to assign the competition name — bots carry
+no identity of their own and are told their assigned name after joining. Per-action deadlines are
 enforced server-side (`--timeout-ms`, 0 = none); timeouts, disconnects, and
 malformed replies are faults handled by the configured fault policy.
 
