@@ -94,15 +94,23 @@ engine's `ShowdownSpec { hi, lo }`, each side names its own evaluator
 this directory's event JSON, the field is still always called `hi`/`lo`
 (that's the wire format), but what it *means* varies by game:
 
-| game | `hi` side | `lo` side |
+| game | `hi` side (odd chip) | `lo` side |
 |---|---|---|
-| badacey-fl | best **badugi** (4 distinct-rank, distinct-suit cards, aces low) | best **A-5 low** (5 cards, aces low) |
-| badeucy-fl | best **badugi, aces high** (nut badugi is 5-4-3-2 rainbow) | best **2-7 low** (aces high, straights/flushes count against you) |
+| badacey-fl | best **A-5 low** (5 cards, aces low) | best **badugi** (4 distinct-rank, distinct-suit cards, aces low) |
+| badeucy-fl | best **2-7 low** (aces high, straights/flushes count against you) | best **badugi, aces high** (nut badugi is 5-4-3-2 rainbow) |
 | archie-fl | best High hand **with a sixes-or-better qualifier** (no-pair never qualifies) | best A-5 low **with an eight-or-better qualifier** |
 | bigo-pl | ordinary Omaha High (exactly 2 of 5 hole + 3 of 5 board) | ordinary eight-or-better Omaha low, same 2-and-3 rule |
-| drawmaha-fl | Omaha-style High (exactly 2 hole + 3 board) | plain High poker on **all five of the player's own cards**, board unused |
-| drawmaha-27-fl | Omaha-style High (exactly 2 hole + 3 board) | **2-7 low** on all five own cards, board unused |
-| drawmaha-dugi-fl | Omaha-style High (exactly 2 hole + 3 board) | **badugi** on all five own cards, board unused |
+| drawmaha-fl | plain High poker on **all five of the player's own cards**, board unused | Omaha-style High (exactly 2 hole + 3 board) |
+| drawmaha-27-fl | **2-7 low** on all five own cards, board unused | Omaha-style High (exactly 2 hole + 3 board) |
+| drawmaha-dugi-fl | **badugi** on all five own cards, board unused | Omaha-style High (exactly 2 hole + 3 board) |
+
+**A note on which slot is "hi."** For badacey/badeucy/drawmaha, "hi" and
+"lo" are just the wire protocol's two slot names, not a claim about which
+hand is bigger — per an owner ruling, the *five-card-hand* half (A-5 low,
+2-7 low, or the drawmaha in-hand read) is the `hi` slot and gets the odd
+chip on an indivisible pot; badugi and the drawmaha Omaha-style half are
+`lo`. Archie's and bigo's slot assignment is the intuitive one (badugi
+never appears in either of those two games) and is unaffected.
 
 Both sides in badacey/badeucy/drawmaha are "total" evaluators (they always
 produce a value), so those five games' pots **always** split — a `"whole"`
@@ -128,6 +136,8 @@ predicted winner was checked against the engine's actual `pot-awarded`
 winner for **all 2,800 showdown hands** across the seven source matches
 (400 hands × 7 games) with **zero mismatches**, so the class names, low
 strings, and badugi strings quoted below are trustworthy, not guessed.
+(Re-verified again, still zero mismatches, after the hi/lo slot ruling
+above flipped which side is which for five of these seven games.)
 
 ## How to regenerate
 
@@ -171,7 +181,7 @@ games:
   showdown evaluators differ (see "Split-half games" above).
 - `drawmaha-fl` / `drawmaha-27-fl` / `drawmaha-dugi-fl` deal identically
   for a given hand number (identical streets: 5 hole cards, flop, one draw,
-  turn, river); only the in-hand `lo` evaluator differs.
+  turn, river); only the in-hand `hi` evaluator differs.
 
 All nineteen source matches here used `--hands 400 --seed 7 --dealing
 seeded`, mixing `builtin:random` (creates raises and folds), `builtin:
@@ -647,12 +657,13 @@ A-5 lowball.
 
 ## badacey-fl — Badacey
 
-5-card fixed-limit triple draw, split every hand between the best badugi
-(aces low) and the best A-5 low on the same five cards — see "Split-half
-games" above. Because both sides are total evaluators, badacey **always**
-splits at showdown (a `"whole"` award only happens if everyone else folds
-pre-showdown); a "scoop" below means the same seat wins both halves, not
-that the pot goes undivided.
+5-card fixed-limit triple draw, split every hand between the best A-5 low
+(the `hi` slot, gets the odd chip) and the best badugi, aces low (the `lo`
+slot) on the same five cards — see "Split-half games" above for why the
+low is the "hi" slot here. Because both sides are total evaluators,
+badacey **always** splits at showdown (a `"whole"` award only happens if
+everyone else folds pre-showdown); a "scoop" below means the same seat
+wins both halves, not that the pot goes undivided.
 
 ```sh
 ./target/release/poker-arena run --game badacey-fl --hands 400 --seed 7 \
@@ -661,49 +672,49 @@ that the pot goes undivided.
 ```
 
 - **hand 4** — seat 2 discards its entire hand on the first draw (a total
-  reshuffle) then folds; seat 0 and seat 1 go to showdown. Seat 0's `8h Kd
-  4s Kc Td` makes a four-card K-T-8-4 badugi (the two kings conflict) and
-  takes the badugi/hi half (1500); seat 1's `3h Ac Qc 7c 4h` only manages a
-  two-card 3-A badugi (three clubs and two hearts collide), but its
-  no-pair Q-7-4-3-A beats seat 0's paired K-K-T-8-4 on the A-5/lo half
-  (1500) — a clean split, each seat winning the half the other is worse
-  at.
+  reshuffle) then folds; seat 0 and seat 1 go to showdown. Seat 1's `3h Ac
+  Qc 7c 4h` is a no-pair Q-7-4-3-A that beats seat 0's paired K-K-T-8-4 low
+  and takes the A-5/hi half (1500); seat 0's `8h Kd 4s Kc Td` makes a
+  four-card K-T-8-4 badugi (the two kings conflict), better than seat 1's
+  two-card 3-A (three clubs and two hearts collide), and takes the
+  badugi/lo half (1500) — a clean split, each seat winning the half the
+  other is worse at.
 - **hand 6** — seat 0 folds after a raise war, seat 1 discards three then
-  folds too, leaving seat 2 vs. seat 3. Seat 2's `Ac 8s Th 7d` (dropping
-  the second ten) is a four-card T-8-7-A badugi — the ace counts *low*
-  here and helps — and takes the badugi half (1750); seat 3's own five
-  cards read a no-pair K-T-9-8-6 that beats seat 2's paired T-T-8-7-A on
-  the A-5 half (1750) — another split.
+  folds too, leaving seat 2 vs. seat 3. Seat 3's own five cards read a
+  no-pair K-T-9-8-6 that beats seat 2's paired T-T-8-7-A and takes the A-5
+  half (1750); seat 2's `Ac 8s Th 7d` (dropping the second ten) is a
+  four-card T-8-7-A badugi — the ace counts *low* here and helps — bigger
+  than seat 3's two-card 9-6, and takes the badugi half (1750) — another
+  split.
 - **hand 9** — seat 0 folds preflop; seat 2 discards two, then all five,
-  chasing improvement before folding on the last round. Seat 1 and seat 3
-  both scrape together lousy two-card badugis (3-A vs. 6-3), but seat 1's
-  is lower and takes the badugi half; on the A-5 side seat 1's pair of
-  treys (9-7-3-3-A, using all five cards) still beats seat 3's trip sixes
-  (Q-6-6-6-3) — fewer duplicates wins — so seat 1 scoops both halves,
-  4200.
+  chasing improvement before folding on the last round. On the A-5 side
+  seat 1's pair of treys (9-7-3-3-A, using all five cards) beats seat 3's
+  trip sixes (Q-6-6-6-3) — fewer duplicates wins; seat 1 and seat 3 also
+  scrape together lousy two-card badugis (3-A vs. 6-3), and seat 1's is
+  lower — seat 1 scoops both halves, 4200.
 - **hand 24** — a multi-way preflop pot narrows to seat 0 vs. seat 2 after
-  draw1 betting caps at four raises. Seat 2's `4d 9c Ts Th 2c` makes a
-  three-card T-4-2 badugi,
-  bigger than seat 0's two-card T-7, and also carries a pair of tens
-  (T-T-9-4-2) that beats seat 0's pair of kings (K-K-Q-T-7) on the A-5
-  side — seat 2 scoops both halves, 3500.
+  draw1 betting caps at four raises. Seat 2's `4d 9c Ts Th 2c` carries a
+  pair of tens (T-T-9-4-2) that beats seat 0's pair of kings (K-K-Q-T-7)
+  on the A-5 half, and also makes a three-card T-4-2 badugi, bigger than
+  seat 0's two-card T-7, on the badugi half — seat 2 scoops both halves,
+  3500.
 - **hand 34** — the richest badacey hand in the set: draw1 and draw2 both
   go to a three-way raise war after seat 0 folds; seat 1 discards three,
   stands pat a round, then discards four more on the final draw. The
-  resulting `9c Jh Qc 8d 2h` makes a three-card 9-8-2 badugi — the best of
-  the three players' badugis (seat 2 makes Q-9-4, seat 3 makes A-J-4, both
-  also three-card but higher) — and a no-pair Q-J-9-8-2 low that also beats
-  seat 2's paired Q-9-9-5-4 and seat 3's higher-topped K-J-6-4-A; seat 1
-  scoops both halves, 5400.
+  resulting `9c Jh Qc 8d 2h` makes a no-pair Q-J-9-8-2 low that beats seat
+  2's paired Q-9-9-5-4 and seat 3's higher-topped K-J-6-4-A on the A-5
+  half, and a three-card 9-8-2 badugi — the best of the three players'
+  badugis (seat 2 makes Q-9-4, seat 3 makes A-J-4, both also three-card
+  but higher) — on the badugi half; seat 1 scoops both halves, 5400.
 
 ## badeucy-fl — Badeucy
 
-Badacey's evil twin: the same 5-card fixed-limit triple draw, but the
-badugi half counts aces *high* (the nut badugi is 5-4-3-2 rainbow) and the
-low half is 2-7 (also aces high, straights/flushes count against you) —
-so an ace is bad news on *both* halves at once, unlike badacey where aces
-help both. Like badacey, both sides are total evaluators, so the pot
-always splits at showdown.
+Badacey's evil twin: the same 5-card fixed-limit triple draw, but the low
+half (`hi` slot, odd chip) is 2-7 (aces high, straights/flushes count
+against you) and the badugi half (`lo` slot) counts aces *high* too (the
+nut badugi is 5-4-3-2 rainbow) — so an ace is bad news on *both* halves at
+once, unlike badacey where aces help both. Like badacey, both sides are
+total evaluators, so the pot always splits at showdown.
 
 ```sh
 ./target/release/poker-arena run --game badeucy-fl --hands 400 --seed 7 \
@@ -712,48 +723,49 @@ always splits at showdown.
 ```
 
 - **hand 4** — the badeucy sibling of badacey's hand 4 (identical deal):
-  seat 0's `8h Kd 4s Kc Td` again makes a four-card K-T-8-4 badugi and
-  takes the badugi half (1500); seat 1's ace gets excluded from its own
-  best badugi (a small two-card 7-3 ace-high, three clubs and two hearts
-  leaving no room for it), but DeuceToSevenLow must use all five cards
-  including that ace, and seat 1's no-pair `A-Q-7-4-3` still beats seat 0's
-  paired `K-K-T-8-4` (no-pair beats any pair, ace-high top card and all) to
-  take the 2-7 half (1500) — split.
+  seat 1's ace gets excluded from its own best badugi (a small two-card
+  7-3 ace-high, three clubs and two hearts leaving no room for it), but
+  DeuceToSevenLow must use all five cards including that ace, and seat 1's
+  no-pair `A-Q-7-4-3` still beats seat 0's paired `K-K-T-8-4` (no-pair
+  beats any pair, ace-high top card and all) to take the 2-7/hi half
+  (1500); seat 0's `8h Kd 4s Kc Td` makes a four-card K-T-8-4 badugi and
+  takes the badugi/lo half (1500) — split.
 - **hand 27** — seat 0 folds preflop; seat 2 discards its whole hand on
   draw1, then four more on draw2 (two near-total resets), before folding
   to a raise on draw2; seat 1 and seat 3 — who both stand pat the entire
-  hand — reach showdown untouched. Seat 3's `Jd 2c 8h 6s 3s` makes a
+  hand — reach showdown untouched. Seat 1's own `8-5-4-3-2` beats seat 3's
+  `J-8-6-3-2` on the 2-7 half (2200); seat 3's `Jd 2c 8h 6s 3s` makes a
   four-card J-8-3-2 badugi (bigger than seat 1's three-card 4-3-2) and
-  takes the badugi half (2200); seat 1's own `8-5-4-3-2` beats seat 3's
-  `J-8-6-3-2` on the 2-7 side (2200) — split, no ace involved on either
-  side this time.
+  takes the badugi half (2200) — split, no ace involved on either side
+  this time.
 - **hand 34** — the badeucy sibling of badacey's hand 34 (identical deal):
-  seat 1 (after discarding three, then four more) makes an ace-free
-  three-card 9-8-2 badugi and no-pair Q-J-9-8-2 low, both good enough to
-  scoop against seat 2's three-card Q-9-4/paired Q-9-9-5-4 and seat 3's
-  three-card A-J-4/A-K-J-6-4. Seat 3's ace is *forced* into their badugi —
-  excluding it would leave only two cards, worse than three — and it tops
-  their 2-7 low as the worst possible card either way; seat 1 wins both
-  halves, 5400.
+  seat 1 (after discarding three, then four more) makes a no-pair
+  Q-J-9-8-2 low and an ace-free three-card 9-8-2 badugi, both good enough
+  to scoop against seat 2's paired Q-9-9-5-4/three-card Q-9-4 and seat 3's
+  A-K-J-6-4/three-card A-J-4. Seat 3's ace tops their 2-7 low as the worst
+  possible card, and is also *forced* into their badugi — excluding it
+  would leave only two cards, worse than three; seat 1 wins both halves,
+  5400.
 - **hand 40** — seat 3 folds preflop; seat 1 churns hard (discards four,
   then four more) and still can't keep up. Seat 2 is dealt pocket aces
-  (`Ah`, `As`) — about the worst possible badeucy holding: the pair limits
-  their badugi to a three-card `A-T-2` (forced to keep one ace since a pair
-  of clubs also collides), and DeuceToSevenLow must count both, reading a
-  paired `A-A-T-7-2` (doubly bad: a pair, and the pair is aces). Seat 0's
-  ace-free `Jc 5s 9d Td 2h` — a four-card J-9-5-2 badugi and a no-pair
-  J-T-9-5-2 low — scoops both halves, 4900 total.
-- **hand 91** — the clearest double-ace-penalty in the set. Seat 2's `Ts 7h
-  Ac 6d` makes a four-card badugi (`A-T-7-6`) only because including the
-  ace still beats a smaller three-card hand — the ace is dragged along as
-  the worst member. Seat 3's `Kc Ks 5c As 8d` shows the opposite: the best
-  three-card badugi available (`K-8-5`) explicitly *prefers* the king over
-  the ace it's also holding, discarding `As` entirely rather than let it
-  in. Neither escapes the low side, though — DeuceToSevenLow uses all five
-  own cards with no choice, so seat 2 reads `A-T-8-7-6` and seat 3 reads
-  `A-K-K-8-5` (double-cursed: an ace on top of a pair of kings). Seat 1's
-  ace-free `Kd 9s 8c Jc 3h` (a four-card K-9-8-3 badugi and K-J-9-8-3 low)
-  has no such problem and scoops both halves, 4500 total.
+  (`Ah`, `As`) — about the worst possible badeucy holding: DeuceToSevenLow
+  must count both, reading a paired `A-A-T-7-2` (doubly bad: a pair, and
+  the pair is aces), and the same pair limits their badugi to a three-card
+  `A-T-2` (forced to keep one ace since a pair of clubs also collides).
+  Seat 0's ace-free `Jc 5s 9d Td 2h` — a no-pair J-T-9-5-2 low and a
+  four-card J-9-5-2 badugi — scoops both halves, 4900 total.
+- **hand 91** — the clearest double-ace-penalty in the set. DeuceToSevenLow
+  uses all five own cards with no choice, so seat 2 reads `A-T-8-7-6` and
+  seat 3 reads `A-K-K-8-5` (double-cursed: an ace on top of a pair of
+  kings) — both damaged hands. The same aces show up on the badugi side:
+  seat 2's `Ts 7h Ac 6d` makes a four-card badugi (`A-T-7-6`) only because
+  including the ace still beats a smaller three-card hand — the ace is
+  dragged along as the worst member — while seat 3's `Kc Ks 5c As 8d`
+  shows the opposite: the best three-card badugi available (`K-8-5`)
+  explicitly *prefers* the king over the ace it's also holding, discarding
+  `As` entirely rather than let it in. Seat 1's ace-free `Kd 9s 8c Jc 3h`
+  (a K-J-9-8-3 low and a four-card K-9-8-3 badugi) has no such problem and
+  scoops both halves, 4500 total.
 
 ## archie-fl — Archie
 
@@ -851,11 +863,12 @@ with one more hole card to choose from.
 
 Five hole cards over a hold'em-style board (preflop → flop → **one draw
 round, no betting on it** → turn → river). The pot always splits between
-an Omaha-style hi half (exactly 2 hole + 3 board, ordinary High poker) and
-an "in-hand" half — plain High poker on the whole five-card hand the
-player ends the draw with, board not used at all. Both are total
-evaluators, so — like badacey/badeucy — the pot always splits at
-showdown; a "scoop" means the same seat wins both halves.
+an "in-hand" half (`hi` slot, odd chip) — plain High poker on the whole
+five-card hand the player ends the draw with, board not used at all — and
+an Omaha-style half (`lo` slot, exactly 2 hole + 3 board, also ordinary
+High poker). Both are total evaluators, so — like badacey/badeucy — the
+pot always splits at showdown; a "scoop" means the same seat wins both
+halves.
 
 ```sh
 ./target/release/poker-arena run --game drawmaha-fl --hands 400 --seed 7 \
@@ -864,34 +877,36 @@ showdown; a "scoop" means the same seat wins both halves.
 ```
 
 - **hand 0** — seat 3 discards its entire hand on the single draw round;
-  seat 2's `Ks 8h` makes two pair (kings and eights) with the board's `Kc
-  8c Qs` on the omaha half, and seat 2's own dealt pair of nines beats
-  seat 1's no-pair in-hand read — seat 2 scoops both halves, 2100.
-- **hand 15** — seat 0's `4s 3s` completes a flush with the board's `Js 6s
-  7s` and takes the omaha half alone (1850); seat 1, dealt pocket trip
-  aces (`As Ad Ac`, stood pat), has a merely-ordinary two-pair omaha hand
-  but the best in-hand read at the table and takes that half (1850) — the
-  omaha and in-hand winners are two different seats, and the same
-  player's own two evaluations disagree about who's best.
-- **hand 34** — seat 3's `6h Kh` makes a flush with the board's `Th 5h 8h`
-  and takes the omaha half (1500); seat 2's dealt pair of nines beats seat
-  3's no-pair in-hand read and takes that half (1500) — omaha and in-hand
-  go to different seats again.
-- **hand 65** — seat 2's `Ks Qd` completes a broadway straight with the
-  board's `Td Jd As` and takes the omaha half (2000); seat 2's own five
-  cards also read a pair of kings, better than seat 3's in-hand pair of
-  nines — seat 2 scoops both halves.
-- **hand 224** — seat 2 discards its entire hand on the single draw round
-  and rivers trip sevens on the omaha half (`7d 7h` plus the board's `9s
-  7c As`) while the same fresh five cards also read a pair of sevens,
-  beating seat 1's and seat 0's in-hand no-pairs — scoops both halves,
-  1800.
+  seat 2's own dealt pair of nines beats seat 1's no-pair in-hand read and
+  takes the in-hand/hi half, and seat 2's `Ks 8h` also makes two pair
+  (kings and eights) with the board's `Kc 8c Qs` on the omaha/lo half —
+  seat 2 scoops both halves, 2100.
+- **hand 15** — seat 1, dealt pocket trip aces (`As Ad Ac`, stood pat), has
+  the best in-hand read at the table and takes the in-hand/hi half (1850);
+  seat 0's `4s 3s` completes a flush with the board's `Js 6s 7s` and takes
+  the omaha/lo half alone (1850) — despite only a merely-ordinary two-pair
+  omaha hand of its own, seat 1's in-hand and omaha winners are two
+  different seats, and the same player's own two evaluations disagree
+  about who's best.
+- **hand 34** — seat 2's dealt pair of nines beats seat 3's no-pair
+  in-hand read and takes the in-hand/hi half (1500); seat 3's `6h Kh`
+  makes a flush with the board's `Th 5h 8h` and takes the omaha/lo half
+  (1500) — in-hand and omaha go to different seats again.
+- **hand 65** — seat 2's own five cards read a pair of kings, better than
+  seat 3's in-hand pair of nines, and take the in-hand/hi half; seat 2's
+  `Ks Qd` also completes a broadway straight with the board's `Td Jd As`
+  and takes the omaha/lo half — seat 2 scoops both halves, 2000.
+- **hand 224** — seat 2 discards its entire hand on the single draw round;
+  the fresh five cards read a pair of sevens, beating seat 1's and seat
+  0's in-hand no-pairs, and also river trip sevens on the omaha half (`7d
+  7h` plus the board's `9s 7c As`) — seat 2 scoops both halves, 1800.
 
 ## drawmaha-27-fl — Drawmaha 2-7
 
 The drawmaha structure (5 hole cards, flop, one no-betting draw, turn,
-river), but the in-hand half is scored as 2-7 lowball (aces high,
-straights/flushes count against you) instead of High poker. Both sides
+river), but the in-hand half (`hi` slot, odd chip) is scored as 2-7
+lowball (aces high, straights/flushes count against you) instead of High
+poker; the omaha half (`lo` slot) is still ordinary High poker. Both sides
 are total evaluators, so the pot always splits.
 
 ```sh
@@ -900,40 +915,42 @@ are total evaluators, so the pot always splits.
   --bot builtin:caller --bot builtin:random:9 --log drawmaha-27-fl.log
 ```
 
-- **hand 6** — seat 2's `Th Ts` makes two pair (tens and deuces) with the
-  board's `2d 8c 2s` and takes the omaha half (3175); seat 3's own
-  `6d 8d 9h Kd Td` reads a no-pair `K-T-9-8-6` on the 2-7 side, beating
-  seat 2's paired `A-T-T-8-7` (a pair of tens) and seat 0's own no-pair
-  `A-Q-J-8-6` (worse than seat 3's simply because ace is the highest,
-  worst 2-7 card) — seat 3 takes the in-hand half (3175) even though its
-  omaha hand was worse than both rivals'.
-- **hand 15** — seat 0's `4s 3s` flushes with the board's `Js 6s 7s` and
-  also, on the in-hand side, reads a no-pair `A-8-5-4-3` that beats seat
-  1's dealt `3h As 2c Ad Ac` — trip aces, about as bad as 2-7 gets, since
-  trips are bad and aces count as the worst rank — and seat 3's paired
-  `Q-T-8-4-4`; seat 0 scoops both halves, 1850.
-- **hand 34** — seat 3's flush (`6h Kh` plus the board's `Th 5h 8h`) takes
-  the omaha half, and the same five cards' no-pair `A-K-J-6-4` beats seat
-  2's paired `Q-9-9-5-4` on the 2-7 side — seat 3 scoops both halves,
-  1500.
-- **hand 65** — seat 2's broadway straight (`Ks Qd` plus the board's `Td
-  Jd As`) takes the omaha half (2000), but seat 2's own hand reads a
-  paired `K-K-Q-8-7` on the 2-7 side — worse than seat 3's paired
-  `T-9-9-8-2` (the lower pair wins for 2-7) — so seat 3 takes the in-hand
-  half (2000): omaha and in-hand split between two seats again.
+- **hand 6** — seat 3's own `6d 8d 9h Kd Td` reads a no-pair `K-T-9-8-6` on
+  the 2-7/in-hand side, beating seat 2's paired `A-T-T-8-7` (a pair of
+  tens) and seat 0's own no-pair `A-Q-J-8-6` (worse than seat 3's simply
+  because ace is the highest, worst 2-7 card) — seat 3 takes the
+  in-hand/hi half (3175) even though its omaha hand was worse than both
+  rivals'; seat 2's `Th Ts` makes two pair (tens and deuces) with the
+  board's `2d 8c 2s` and takes the omaha/lo half (3175).
+- **hand 15** — seat 0, on the in-hand side, reads a no-pair `A-8-5-4-3`
+  that beats seat 1's dealt `3h As 2c Ad Ac` — trip aces, about as bad as
+  2-7 gets, since trips are bad and aces count as the worst rank — and
+  seat 3's paired `Q-T-8-4-4`, taking the in-hand/hi half; seat 0's `4s
+  3s` also flushes with the board's `Js 6s 7s` for the omaha/lo half —
+  seat 0 scoops both halves, 1850.
+- **hand 34** — the same five cards' no-pair `A-K-J-6-4` beats seat 2's
+  paired `Q-9-9-5-4` on the 2-7/in-hand side, taking that half for seat 3;
+  seat 3's flush (`6h Kh` plus the board's `Th 5h 8h`) also takes the
+  omaha/lo half — seat 3 scoops both halves, 1500.
+- **hand 65** — seat 2's own hand reads a paired `K-K-Q-8-7` on the 2-7
+  side — worse than seat 3's paired `T-9-9-8-2` (the lower pair wins for
+  2-7) — so seat 3 takes the in-hand/hi half (2000); seat 2's broadway
+  straight (`Ks Qd` plus the board's `Td Jd As`) takes the omaha/lo half
+  (2000): in-hand and omaha split between two seats again.
 - **hand 356** — the richest hand in the set: seat 1 discards its entire
-  hand on the single draw round and rivers a full house (fours full of
-  sixes: `6h 4c` plus the board's `4s 6s 4h`) on the omaha half, and the
-  same fresh five cards read a no-pair `K-Q-6-4-2` on the 2-7 side, better
-  than all three rivals' one-pair in-hand reads (seat0's paired treys,
-  seat2's paired nines, seat3's paired fives) — seat 1 scoops both halves,
-  4200.
+  hand on the single draw round; the same fresh five cards read a no-pair
+  `K-Q-6-4-2` on the 2-7 side, better than all three rivals' one-pair
+  in-hand reads (seat0's paired treys, seat2's paired nines, seat3's
+  paired fives), taking the in-hand/hi half; seat 1 also rivers a full
+  house (fours full of sixes: `6h 4c` plus the board's `4s 6s 4h`) on the
+  omaha half — seat 1 scoops both halves, 4200.
 
 ## drawmaha-dugi-fl — Drawmaha Dugi
 
-The drawmaha structure again, but the in-hand half is badugi (aces low,
-best of up to four of the player's own five cards — same evaluator as
-`badugi-fl`, just fed the drawmaha hand instead of a dedicated deal). Both
+The drawmaha structure again, but the in-hand half (`hi` slot, odd chip)
+is badugi (aces low, best of up to four of the player's own five cards —
+same evaluator as `badugi-fl`, just fed the drawmaha hand instead of a
+dedicated deal); the omaha half (`lo` slot) is ordinary High poker. Both
 sides are total evaluators, so the pot always splits.
 
 ```sh
@@ -943,32 +960,33 @@ sides are total evaluators, so the pot always splits.
 ```
 
 - **hand 34** — the drawmaha-dugi sibling of the drawmaha-fl/-27-fl hand
-  34 (identical deal, same `9c Th 5h` flop): seat 3's `6h Kh` flushes with
-  the board's `Th 5h 8h` on the omaha half, and the same five cards also
-  make a three-card `J-4-A` badugi (the ace counts *low* here, unlike
-  badeucy, so it's a genuine asset) that beats seat 2's three-card `Q-9-4`
-  — seat 3 scoops both halves, 1500.
+  34 (identical deal, same `9c Th 5h` flop): seat 3's five cards make a
+  three-card `J-4-A` badugi (the ace counts *low* here, unlike badeucy, so
+  it's a genuine asset) that beats seat 2's three-card `Q-9-4`, taking the
+  badugi/hi half; seat 3's `6h Kh` also flushes with the board's `Th 5h
+  8h` for the omaha/lo half — seat 3 scoops both halves, 1500.
 - **hand 55** — seat 2 discards its entire hand on the single draw round
   and still can't beat a four-card badugi: seat 1's `3h 7c 3c 8d As` is a
-  four-card `8-7-3-A` badugi (the ace slots in as the low anchor) as well
-  as two pair (aces and sevens: hole `7c`/`As` plus the board's `Ah`/`7h`,
-  kicker `Qc`) on the omaha half — seat 1 scoops both halves, 1950.
-- **hand 65** — the flagship: seat 2's `Ks Qd` completes a broadway
-  straight with the board's `Td Jd As` and takes the omaha half (2000),
-  but their own five cards reduce to just a two-card `8-7` badugi; seat
-  3's `9s 8h 9d 2s Tc`, despite only a one-pair omaha hand, is a genuine
-  **four-card** `T-9-8-2` badugi and takes the in-hand half (2000) — omaha
-  and in-hand go to two different seats, and the badugi winner has the
-  weaker omaha hand of the two.
+  four-card `8-7-3-A` badugi (the ace slots in as the low anchor), taking
+  the badugi/hi half, as well as two pair (aces and sevens: hole
+  `7c`/`As` plus the board's `Ah`/`7h`, kicker `Qc`) on the omaha half —
+  seat 1 scoops both halves, 1950.
+- **hand 65** — the flagship: seat 3's `9s 8h 9d 2s Tc` is a genuine
+  **four-card** `T-9-8-2` badugi and takes the badugi/hi half (2000)
+  despite only a one-pair omaha hand of its own; seat 2's own five cards
+  reduce to just a two-card `8-7` badugi, but seat 2's `Ks Qd` completes a
+  broadway straight with the board's `Td Jd As` and takes the omaha/lo
+  half (2000) — badugi and omaha go to two different seats, and the
+  badugi winner has the weaker omaha hand of the two.
 - **hand 79** — seat 3 folds preflop; seat 0 and seat 2 cap the turn at
   four raises (200→400→600→800) three-way before seat 2 folds the river.
-  Seat 1's `3h 4c 2d 7d 7s` makes trip sevens on the omaha half (`7d 7s`
-  plus the board's `Kd Td 7h`) and, on the in-hand half, a clean four-card
-  `7-4-3-2` badugi with no ace needed at all, beating seat 0's two-card
-  `T-2` — scoops both halves, 2000.
-- **hand 142** — seat 2's `Jd Jh` trips up with the board's `Td Jc Kc` for
-  trip jacks and takes the omaha half (3200); seat 0, who stood pat the
-  entire hand, has only a one-pair omaha read but a three-card `6-4-A`
-  badugi (the ace anchoring it low) that beats seat 3's two-card `Q-2` and
-  seat 2's three-card `J-5-2` — seat 0 takes the in-hand half (3200): omaha
-  and in-hand go to different seats again.
+  Seat 1's `3h 4c 2d 7d 7s` makes a clean four-card `7-4-3-2` badugi with
+  no ace needed at all, beating seat 0's two-card `T-2`, and takes the
+  badugi/hi half; seat 1 also makes trip sevens on the omaha half (`7d
+  7s` plus the board's `Kd Td 7h`) — scoops both halves, 2000.
+- **hand 142** — seat 0, who stood pat the entire hand, has only a
+  one-pair omaha read but a three-card `6-4-A` badugi (the ace anchoring
+  it low) that beats seat 3's two-card `Q-2` and seat 2's three-card
+  `J-5-2` — seat 0 takes the badugi/hi half (3200); seat 2's `Jd Jh` trips
+  up with the board's `Td Jc Kc` for trip jacks and takes the omaha/lo
+  half (3200): badugi and omaha go to different seats again.
