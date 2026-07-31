@@ -1,6 +1,6 @@
 //! `poker-arena` CLI — list game variants and run matches between bots.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
@@ -374,6 +374,10 @@ fn build_bots(
 /// Names in `--bot` order, with the second and later use of a base name
 /// suffixed `-2`, `-3`, …
 fn disambiguate(base_names: &[String]) -> Vec<String> {
+    // Every base name is reserved up front so a generated suffix can never
+    // collide with a name someone chose explicitly (caller, caller,
+    // caller-2 must not yield caller-2 twice).
+    let mut taken: HashSet<String> = base_names.iter().cloned().collect();
     let mut seen: HashMap<&str, u32> = HashMap::new();
     base_names
         .iter()
@@ -381,9 +385,14 @@ fn disambiguate(base_names: &[String]) -> Vec<String> {
             let count = seen.entry(base.as_str()).or_insert(0);
             *count += 1;
             if *count == 1 {
-                base.clone()
-            } else {
-                format!("{base}-{count}")
+                return base.clone();
+            }
+            loop {
+                let candidate = format!("{base}-{count}");
+                if taken.insert(candidate.clone()) {
+                    return candidate;
+                }
+                *count += 1;
             }
         })
         .collect()
@@ -674,5 +683,28 @@ fn print_report(config: &MatchConfig, result: &poker_arena::MatchResult) {
         } else {
             println!("No statistically significant winner.");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::disambiguate;
+
+    #[test]
+    fn duplicate_names_get_unique_suffixes_without_colliding() {
+        let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            disambiguate(&names(&["caller", "random", "caller"])),
+            names(&["caller", "random", "caller-2"])
+        );
+        // A generated suffix must never collide with an explicit name.
+        assert_eq!(
+            disambiguate(&names(&["caller", "caller", "caller-2"])),
+            names(&["caller", "caller-3", "caller-2"])
+        );
+        // All-identical field stays fully distinct.
+        let out = disambiguate(&names(&["x", "x", "x", "x"]));
+        let set: std::collections::HashSet<_> = out.iter().collect();
+        assert_eq!(set.len(), 4);
     }
 }
