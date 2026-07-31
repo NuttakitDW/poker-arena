@@ -133,6 +133,12 @@ struct RunArgs {
     /// Print progress to stderr every N decks (0 = off).
     #[arg(long, default_value_t = 0)]
     progress_every: u64,
+
+    /// Result format on stdout: aligned human tables, or a single JSON
+    /// document (see poker_arena::report::MatchReport) for programmatic
+    /// consumers.
+    #[arg(long, value_enum, default_value = "human")]
+    output: OutputArg,
 }
 
 #[derive(Copy, Clone, ValueEnum)]
@@ -149,6 +155,13 @@ impl From<DealingArg> for DealingMode {
             DealingArg::Duplicate => DealingMode::Duplicate,
         }
     }
+}
+
+#[derive(Copy, Clone, ValueEnum)]
+#[value(rename_all = "kebab-case")]
+enum OutputArg {
+    Human,
+    Json,
 }
 
 #[derive(Copy, Clone, ValueEnum)]
@@ -466,8 +479,19 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
 
     let result = run_match(&config, &mut bots, sink, on_progress).map_err(|e| e.to_string())?;
 
-    println!("seed: {seed}");
-    print_report(&result);
+    match args.output {
+        OutputArg::Human => {
+            println!("seed: {seed}");
+            print_report(&result);
+        }
+        OutputArg::Json => {
+            let report = poker_arena::MatchReport::new(&config, seed, &result);
+            println!(
+                "{}",
+                serde_json::to_string(&report).expect("report serialization is infallible")
+            );
+        }
+    }
 
     if let Some(offender) = result.forfeited_by {
         eprintln!("{} forfeited the match", result.outcomes[offender].name);

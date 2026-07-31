@@ -147,6 +147,7 @@ dependencies = [
  "poker-arena",
  "poker-core",
  "poker-wire",
+ "serde_json",
 ]
 
 [[package]]

@@ -47,6 +47,11 @@ live in [transcripts/](transcripts/).
 
 Match reports include a behavioral profile per bot (VPIP, PFR, aggression
 factor, went-to/won-at-showdown, fold rate) alongside the winnings table.
+For programmatic consumers — a website ranking bots, a script sweeping
+configurations — `--output json` replaces the tables with a single JSON
+document (`schema_version`-tagged; see `poker_arena::report::MatchReport`)
+carrying the seed, config, and per-bot results; per-hand detail streams
+separately via `--log` as JSON lines.
 
 ## Out-of-process bots (any language)
 
