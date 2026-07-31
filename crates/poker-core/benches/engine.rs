@@ -29,6 +29,7 @@ use std::hint::black_box;
 const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
     big_blind: 100,
+    ante: 0,
 };
 
 /// Check when free, else call; on a draw street, discard the entire hand

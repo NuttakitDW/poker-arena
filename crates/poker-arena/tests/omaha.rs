@@ -15,6 +15,7 @@ use poker_core::game::{GameSpec, Stakes};
 const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
     big_blind: 100,
+    ante: 0,
 };
 
 fn config(spec: GameSpec, decks: u64, seed: u64, dealing: DealingMode) -> MatchConfig {

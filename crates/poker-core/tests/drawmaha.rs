@@ -30,6 +30,7 @@ fn test_rng() -> Rng64 {
 const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
     big_blind: 100,
+    ante: 0,
 };
 
 fn cards(s: &str) -> Vec<Card> {
@@ -613,6 +614,7 @@ fn both_halves_always_split_or_one_seat_scoops() {
     const ODD_STAKES: Stakes = Stakes::Blinds {
         small_blind: 51,
         big_blind: 101,
+        ante: 0,
     };
     let holes = ["2c 2d 2h 2s 9c", "Ah Kh 5s 6d 7c", "7d 8d Tc Jc Qc"];
     let board = "Qh Jh 8h 4c 3d";

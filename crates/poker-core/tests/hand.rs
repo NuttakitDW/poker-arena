@@ -22,6 +22,7 @@ fn test_rng() -> Rng64 {
 const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
     big_blind: 100,
+    ante: 0,
 };
 
 fn nl(seats: u8) -> GameSpec {
@@ -1045,6 +1046,7 @@ fn split_pot_odd_chip_goes_left_of_the_button() {
     let stakes = Stakes::Blinds {
         small_blind: 25,
         big_blind: 50,
+        ante: 0,
     };
     let mut spec = GameSpec::holdem_nl(stakes);
     spec.seats = 2..=9;

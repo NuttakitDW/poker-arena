@@ -23,6 +23,7 @@ use poker_wire::message::{ArenaMsg, BotMsg};
 const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
     big_blind: 100,
+    ante: 0,
 };
 
 fn hello(timeout_ms: Option<u64>) -> ArenaMsg {

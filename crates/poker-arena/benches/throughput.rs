@@ -32,6 +32,7 @@ use std::hint::black_box;
 const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
     big_blind: 100,
+    ante: 0,
 };
 
 fn nl_config(decks: u64) -> MatchConfig {

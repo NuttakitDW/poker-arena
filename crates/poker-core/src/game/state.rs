@@ -1234,6 +1234,7 @@ mod tests {
         let mut spec = GameSpec::holdem_nl(Stakes::Blinds {
             small_blind: 1,
             big_blind: 2,
+            ante: 0,
         });
         spec.seats = 2..=seats.max(2);
         spec
@@ -1255,6 +1256,7 @@ mod tests {
                 Stakes::Blinds {
                     small_blind: 1,
                     big_blind: 2,
+                    ante: 0,
                 },
             )
             .unwrap();

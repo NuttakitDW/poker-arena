@@ -64,8 +64,8 @@ struct RunArgs {
     #[arg(long, default_value_t = 100)]
     bb: u64,
 
-    /// Per-player ante, in chips. Stud games only; defaults to bb/5 (min 1).
-    /// Passing this for a non-stud game is an error.
+    /// Per-player ante, in chips. Any game: blind games default to no ante;
+    /// stud games default to bb/5 (min 1).
     #[arg(long)]
     ante: Option<u64>,
 
@@ -219,6 +219,7 @@ fn print_games() {
     let placeholder_stakes = Stakes::Blinds {
         small_blind: 50,
         big_blind: 100,
+        ante: 0,
     };
     for id in GameSpec::known_ids() {
         let spec = GameSpec::by_id(id, placeholder_stakes)
@@ -402,14 +403,13 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
     let blind_stakes = Stakes::Blinds {
         small_blind: args.sb,
         big_blind: args.bb,
+        ante: args.ante.unwrap_or(0),
     };
     let mut spec = GameSpec::by_id(&args.game, blind_stakes)
         .ok_or_else(|| format!("unknown game {:?} (see `poker-arena games`)", args.game))?;
 
-    let stud_flags_given = args.ante.is_some()
-        || args.bring_in.is_some()
-        || args.small_bet.is_some()
-        || args.big_bet.is_some();
+    let stud_flags_given =
+        args.bring_in.is_some() || args.small_bet.is_some() || args.big_bet.is_some();
     match spec.stakes {
         Stakes::Stud { .. } => {
             // Rebuild with explicit stud numbers layered over the same
@@ -436,9 +436,7 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
                 .ok_or_else(|| format!("unknown game {:?} (see `poker-arena games`)", args.game))?;
         }
         Stakes::Blinds { .. } if stud_flags_given => {
-            return Err(
-                "--ante/--bring-in/--small-bet/--big-bet apply only to stud games".to_string(),
-            );
+            return Err("--bring-in/--small-bet/--big-bet apply only to stud games".to_string());
         }
         Stakes::Blinds { .. } => {}
     }

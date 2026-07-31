@@ -162,6 +162,7 @@ impl GameSpec {
         use BetTier::*;
         use FirstToAct::*;
         let (small_blind, big_blind) = stakes.blinds();
+        let ante = stakes.ante();
         let street = |label, deal, tier, first_to_act| StreetSpec {
             label,
             deal,
@@ -174,8 +175,9 @@ impl GameSpec {
             stakes: Stakes::Blinds {
                 small_blind,
                 big_blind,
+                ante,
             },
-            forced_bets: ForcedBets::Blinds { ante: 0 },
+            forced_bets: ForcedBets::Blinds { ante },
             betting: BettingKind::NoLimit,
             streets: vec![
                 street("preflop", DealSpec::HolePrivate(2), Small, AfterBlinds),
@@ -432,6 +434,7 @@ impl GameSpec {
             "a5td-fl" => Some(Self::a5td_fl(stakes)),
             "badugi-fl" => Some(Self::badugi_fl(stakes)),
             "5cd-nl" => Some(Self::fcd_nl(stakes)),
+            "27sd-nl" => Some(Self::td27sd_nl(stakes)),
             _ => None,
         }
     }
@@ -451,6 +454,7 @@ impl GameSpec {
             "a5td-fl",
             "badugi-fl",
             "5cd-nl",
+            "27sd-nl",
             "badacey-fl",
             "badeucy-fl",
             "archie-fl",
@@ -591,6 +595,27 @@ impl GameSpec {
 
     /// Five-card draw, no limit (single draw).
     pub fn fcd_nl(stakes: Stakes) -> GameSpec {
+        GameSpec {
+            id: "5cd-nl",
+            display_name: "No-Limit Five-Card Draw",
+            showdown: Self::draw_showdown(EvalKind::High),
+            ..Self::single_draw_base(stakes)
+        }
+    }
+
+    /// 2-7 (Kansas City) single draw, no limit.
+    pub fn td27sd_nl(stakes: Stakes) -> GameSpec {
+        GameSpec {
+            id: "27sd-nl",
+            display_name: "No-Limit 2-7 Single Draw",
+            showdown: Self::draw_showdown(EvalKind::DeuceToSevenLow),
+            ..Self::single_draw_base(stakes)
+        }
+    }
+
+    /// Single-draw skeleton: blinds (ante optional), five cards, one
+    /// bet-draw-bet cycle, no limit.
+    fn single_draw_base(stakes: Stakes) -> GameSpec {
         use BetTier::*;
         use FirstToAct::*;
         let street = |label, deal, tier, first_to_act| StreetSpec {
@@ -599,15 +624,17 @@ impl GameSpec {
             betting: Some(BetRoundSpec { tier, first_to_act }),
         };
         let (small_blind, big_blind) = stakes.blinds();
+        let ante = stakes.ante();
         GameSpec {
-            id: "5cd-nl",
-            display_name: "No-Limit Five-Card Draw",
+            id: "single-draw",
+            display_name: "Single Draw",
             seats: 2..=6,
             stakes: Stakes::Blinds {
                 small_blind,
                 big_blind,
+                ante,
             },
-            forced_bets: ForcedBets::Blinds { ante: 0 },
+            forced_bets: ForcedBets::Blinds { ante },
             betting: BettingKind::NoLimit,
             streets: vec![
                 street("predraw", DealSpec::HolePrivate(5), Small, AfterBlinds),
@@ -631,6 +658,7 @@ impl GameSpec {
         };
         let draw = DealSpec::Draw { max: hand_size };
         let (small_blind, big_blind) = stakes.blinds();
+        let ante = stakes.ante();
         GameSpec {
             id: "triple-draw",
             display_name: "Triple Draw",
@@ -638,8 +666,9 @@ impl GameSpec {
             stakes: Stakes::Blinds {
                 small_blind,
                 big_blind,
+                ante,
             },
-            forced_bets: ForcedBets::Blinds { ante: 0 },
+            forced_bets: ForcedBets::Blinds { ante },
             betting: BettingKind::FixedLimit { raise_cap: Some(4) },
             streets: vec![
                 street(
@@ -693,6 +722,7 @@ mod tests {
     const BLINDS: Stakes = Stakes::Blinds {
         small_blind: 50,
         big_blind: 100,
+        ante: 0,
     };
 
     const STUD: Stakes = Stakes::Stud {
@@ -757,6 +787,7 @@ mod tests {
         let tiny = Stakes::Blinds {
             small_blind: 1,
             big_blind: 2,
+            ante: 0,
         };
         assert_eq!(
             tiny.to_stud(),
@@ -812,13 +843,16 @@ mod tests {
     #[test]
     fn blind_spec_built_from_stud_stakes_derives_blinds() {
         let spec = GameSpec::holdem_nl(STUD);
+        // The ante is a stakes component: it survives normalization.
         assert_eq!(
             spec.stakes,
             Stakes::Blinds {
                 small_blind: 50,
                 big_blind: 100,
+                ante: 10,
             }
         );
+        assert_eq!(spec.forced_bets, ForcedBets::Blinds { ante: 10 });
     }
 
     #[test]

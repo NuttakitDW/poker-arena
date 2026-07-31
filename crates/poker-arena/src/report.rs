@@ -99,6 +99,7 @@ mod tests {
             spec: GameSpec::holdem_nl(Stakes::Blinds {
                 small_blind: 50,
                 big_blind: 100,
+                ante: 0,
             }),
             decks: 20,
             seed: 5,

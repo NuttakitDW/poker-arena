@@ -30,6 +30,7 @@ fn test_rng() -> Rng64 {
 const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
     big_blind: 100,
+    ante: 0,
 };
 
 fn cards(s: &str) -> Vec<Card> {

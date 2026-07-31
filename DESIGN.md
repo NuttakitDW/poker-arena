@@ -1,7 +1,7 @@
 # poker-arena — Architecture
 
 A Rust workspace where poker bots compete to determine which is better,
-across nineteen variants, with statistically sound comparison. This document
+across twenty variants, with statistically sound comparison. This document
 describes how the system is put together; [KEY_DECISIONS.md](KEY_DECISIONS.md)
 records *why* it is this way, [WIRE_PROTOCOL.md](WIRE_PROTOCOL.md) specifies
 the bot protocol, and the rules contract itself lives as module documentation
@@ -69,7 +69,7 @@ crates/
 A variant is *data*: `GameSpec` = seats + stakes + forced bets + betting
 structure + a street list (each street a deal — hole/community/upcards/draw —
 plus an optional betting round) + a showdown of one or two
-`ShowdownSide { kind, usage }` halves. One engine interprets all nineteen
+`ShowdownSide { kind, usage }` halves. One engine interprets all twenty
 registered games; adding a game means writing a constructor in `spec.rs`,
 not engine code.
 
@@ -98,8 +98,9 @@ and pinned by the test suite.
 `WireBot`-wrapped remote processes — the runner never distinguishes). Per
 deck it draws a seeded-random seating arrangement; duplicate mode replays
 the deck once per cyclic rotation of it, and the rotation-set mean is one
-statistical observation (Student-t 95% CI, normalized in big blinds — small
-bets for stud). The button always sits at seat 0; bots rotate. Faults
+statistical observation (Student-t 95% CI; statistics accumulate in chips,
+displayed as big bets per 100 for fixed limit and big blinds per 100 for
+pot/no-limit). The button always sits at seat 0; bots rotate. Faults
 (illegal action, timeout, disconnect, garbage) are substituted with the
 decision family's minimal legal action or forfeit the match, per policy,
 and are always reported. Behavioral profiles (VPIP, PFR, AF, WTSD, W$SD,
@@ -125,5 +126,5 @@ state; `act` carries a self-describing tagged decision plus the deadline.
   cards.
 - Frozen anchors: the RNG stream snapshot, the evaluator C(52,5) frequency
   sweep, pinned wire JSON lines, and [transcripts/](transcripts/) — curated,
-  byte-reproducible hand histories for all nineteen games that double as a
+  byte-reproducible hand histories for all twenty games that double as a
   wire-compatibility oracle for refactors.

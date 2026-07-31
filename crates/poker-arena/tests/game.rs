@@ -19,11 +19,12 @@ use poker_wire::message::ArenaMsg;
 const STAKES: Stakes = Stakes::Blinds {
     small_blind: 50,
     big_blind: 100,
+    ante: 0,
 };
 
 /// Every stud/draw registry id: the three stud variants, the three draw variants,
 /// and five-card draw.
-const STUD_DRAW_IDS: [&str; 7] = [
+const STUD_DRAW_IDS: [&str; 8] = [
     "stud-fl",
     "stud8-fl",
     "razz-fl",
@@ -31,6 +32,7 @@ const STUD_DRAW_IDS: [&str; 7] = [
     "a5td-fl",
     "badugi-fl",
     "5cd-nl",
+    "27sd-nl",
 ];
 
 /// The four split-pot ids: three five-card triple-draw split games plus

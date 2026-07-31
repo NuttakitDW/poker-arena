@@ -272,6 +272,7 @@ mod tests {
                 stakes: Stakes::Blinds {
                     small_blind: 50,
                     big_blind: 100,
+                    ante: 0,
                 },
                 betting: BettingKind::NoLimit,
                 seat_count: 2,
@@ -344,6 +345,7 @@ mod tests {
             stakes: Stakes::Blinds {
                 small_blind: 50,
                 big_blind: 100,
+                ante: 0,
             },
             betting: BettingKind::NoLimit,
             seat_count: 2,
@@ -353,7 +355,7 @@ mod tests {
         let text = serde_json::to_string(&msg).unwrap();
         assert_eq!(
             text,
-            r#"{"t":"hello","proto":1,"game_id":"holdem-nl","stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"no-limit"},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}"#
+            r#"{"t":"hello","proto":1,"game_id":"holdem-nl","stakes":{"kind":"blinds","small_blind":50,"big_blind":100,"ante":0},"betting":{"kind":"no-limit"},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}"#
         );
     }
 

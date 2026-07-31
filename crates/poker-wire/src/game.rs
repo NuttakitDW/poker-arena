@@ -17,6 +17,10 @@ pub enum Stakes {
     Blinds {
         small_blind: Chips,
         big_blind: Chips,
+        /// Per-player ante posted before the deal (0 = none). Antes join
+        /// the pot but never count toward street commitments.
+        #[serde(default)]
+        ante: Chips,
     },
     /// Stud games: per-player ante, forced bring-in, and the two bet tiers.
     Stud {
@@ -35,8 +39,17 @@ impl Stakes {
             Stakes::Blinds {
                 small_blind,
                 big_blind,
+                ..
             } => (*small_blind, *big_blind),
             Stakes::Stud { small_bet, .. } => (small_bet / 2, *small_bet),
+        }
+    }
+
+    /// Per-player ante: explicit for both shapes (0 = none for blind games).
+    pub fn ante(&self) -> Chips {
+        match self {
+            Stakes::Blinds { ante, .. } => *ante,
+            Stakes::Stud { ante, .. } => *ante,
         }
     }
 
@@ -51,13 +64,19 @@ impl Stakes {
     }
 
     /// Normalize into stud numbers: Stud passes through; Blinds derives
-    /// ante = bb/5 (min 1), bring_in = bb/2 (min 1), small_bet = bb,
-    /// big_bet = 2*bb — exactly the current derivation.
+    /// bring_in = bb/2 (min 1), small_bet = bb, big_bet = 2*bb, and ante =
+    /// the explicit blind-game ante when one is set, else bb/5 (min 1).
     pub fn to_stud(&self) -> Stakes {
         match self {
             Stakes::Stud { .. } => *self,
-            Stakes::Blinds { big_blind, .. } => Stakes::Stud {
-                ante: (big_blind / 5).max(1),
+            Stakes::Blinds {
+                big_blind, ante, ..
+            } => Stakes::Stud {
+                ante: if *ante > 0 {
+                    *ante
+                } else {
+                    (big_blind / 5).max(1)
+                },
                 bring_in: (big_blind / 2).max(1),
                 small_bet: *big_blind,
                 big_bet: *big_blind * 2,

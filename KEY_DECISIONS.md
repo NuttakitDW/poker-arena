@@ -31,7 +31,7 @@ need no test proving they don't.
 **Variants are data, not code.** A `GameSpec` is a sequence of streets
 (deal + optional betting round), a betting structure, forced bets, and a
 showdown rule; one engine interprets all of it. Adding a game means writing
-a constructor, not engine code — all nineteen registry games share the same
+a constructor, not engine code — all twenty registry games share the same
 `HandState`. Family quirks (bring-in, upcard ordering, draw phases) are
 enum-encoded hooks the engine understands, not per-variant subclasses.
 

@@ -108,6 +108,7 @@ mod tests {
             stakes: Stakes::Blinds {
                 small_blind: 50,
                 big_blind: 100,
+                ante: 0,
             },
             betting: BettingKind::FixedLimit { raise_cap: Some(4) },
             fault_policy: "check-fold".into(),

@@ -113,7 +113,7 @@ family:
   offered.
 
 ```json
-{"t":"hello","proto":1,"game_id":"holdem-nl","stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"no-limit"},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
+{"t":"hello","proto":1,"game_id":"holdem-nl","stakes":{"kind":"blinds","small_blind":50,"big_blind":100,"ante":0},"betting":{"kind":"no-limit"},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
 ```
 
 ```json
@@ -428,7 +428,7 @@ alone); `schema_version` bumps on any breaking shape change.
 ### Match report (`--output json`, stdout, once)
 
 ```json
-{"schema_version":1,"game_id":"27td-fl","seed":9,"dealing":"duplicate","decks":50,"hands":100,"seat_count":2,"starting_stack":10000,"stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"fixed-limit","raise_cap":4},"fault_policy":"check-fold","timeout_ms":1000,"forfeited_by":null,"bots":[{"name":"random","hands":100,"total_chips":650,"chips_per100_mean":650.0,"chips_per100_ci95":8071.0,"observations":50,"faults":0,"behavior":{"vpip":0.63,"pfr":0.36,"af":1.41,"wtsd":0.11,"wsd":0.47,"fold_rate":0.69}}]}
+{"schema_version":1,"game_id":"27td-fl","seed":9,"dealing":"duplicate","decks":50,"hands":100,"seat_count":2,"starting_stack":10000,"stakes":{"kind":"blinds","small_blind":50,"big_blind":100,"ante":0},"betting":{"kind":"fixed-limit","raise_cap":4},"fault_policy":"check-fold","timeout_ms":1000,"forfeited_by":null,"bots":[{"name":"random","hands":100,"total_chips":650,"chips_per100_mean":650.0,"chips_per100_ci95":8071.0,"observations":50,"faults":0,"behavior":{"vpip":0.63,"pfr":0.36,"af":1.41,"wtsd":0.11,"wsd":0.47,"fold_rate":0.69}}]}
 ```
 
 - `chips_per100_mean` / `chips_per100_ci95`: winnings per 100 hands in
@@ -476,7 +476,7 @@ A complete heads-up no-limit hold'em hand from one bot's point of view
 the whole hand-end-to-hand-end cycle fits in ~20 lines:
 
 ```json
-{"t":"hello","proto":1,"game_id":"holdem-nl","stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"no-limit"},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
+{"t":"hello","proto":1,"game_id":"holdem-nl","stakes":{"kind":"blinds","small_blind":50,"big_blind":100,"ante":0},"betting":{"kind":"no-limit"},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
 {"t":"join","name":"check-call-bot"}
 {"t":"hand-start","hand_no":1,"seat":0}
 {"t":"event","hand_no":1,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}

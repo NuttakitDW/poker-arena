@@ -37,8 +37,9 @@ cargo run --release -p poker-arena-cli -- games
 
 Currently registered: `holdem-nl`, `holdem-fl`, `omaha-pl`, `omaha8-pl`,
 `omaha8-fl`, `bigo-pl`, `stud-fl`, `stud8-fl`, `razz-fl`, `27td-fl`,
-`a5td-fl`, `badugi-fl`, `5cd-nl`, `badacey-fl`, `badeucy-fl`, `archie-fl`,
-`drawmaha-fl`, `drawmaha-27-fl`, `drawmaha-dugi-fl` — nineteen variants
+`a5td-fl`, `badugi-fl`, `5cd-nl`, `27sd-nl`, `badacey-fl`, `badeucy-fl`,
+`archie-fl`, `drawmaha-fl`, `drawmaha-27-fl`, `drawmaha-dugi-fl` — twenty
+variants
 spanning community-card (including five-card Big O), stud (bring-in,
 upcards), draw (including the badacey / badeucy / archie split-pot
 games), and drawmaha (board + draw hybrid) families, all expressed as
@@ -120,7 +121,7 @@ JSON lines (TCP or stdio) — see the section above.
 
 ## Status
 
-Feature-complete for its current scope: nineteen variants across four game
+Feature-complete for its current scope: twenty variants across four game
 families over one data-driven rules engine, in-process and wire bots with
 deadlines and fault policies, duplicate-deal variance reduction with
 Student-t confidence intervals, behavioral profiling, deterministic replay
