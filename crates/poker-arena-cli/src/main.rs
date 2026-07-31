@@ -1,6 +1,5 @@
 //! `poker-arena` CLI — list game variants and run matches between bots.
 
-use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
@@ -272,23 +271,12 @@ impl BuiltinKind {
     }
 }
 
-/// Split an optional `NAME@` prefix off a `--bot` spec and validate it.
+/// Parse a `--bot` spec: split the optional `NAME@` prefix (shared with
+/// `poker-arena-ofc`; see [`poker_arena_cli::split_named_spec`]) and parse
+/// the rest as this binary's own spec kind.
 fn parse_named_bot_spec(spec: &str) -> Result<(Option<String>, BotSpec), String> {
-    let (name, rest) = match spec.split_once('@') {
-        // `@` inside a command string is fine: only treat the prefix as a
-        // name when it doesn't look like the start of a spec itself.
-        Some((n, r)) if !n.contains(':') && !n.is_empty() => (Some(n), r),
-        _ => (None, spec),
-    };
-    if let Some(n) = name {
-        let count = n.chars().count();
-        if count > 32 || n.chars().any(char::is_control) {
-            return Err(format!(
-                "invalid bot name {n:?}: 1..=32 characters, no control characters"
-            ));
-        }
-    }
-    Ok((name.map(str::to_string), parse_bot_spec(rest)?))
+    let (name, rest) = poker_arena_cli::split_named_spec(spec)?;
+    Ok((name, parse_bot_spec(rest)?))
 }
 
 fn parse_bot_spec(spec: &str) -> Result<BotSpec, String> {
@@ -382,7 +370,7 @@ fn build_bots(
 
     Ok(pending
         .into_iter()
-        .zip(disambiguate(&names))
+        .zip(poker_arena_cli::disambiguate(&names))
         .enumerate()
         .map(|(i, (p, name))| match p {
             Pending::Builtin(kind) => kind.build(name, i),
@@ -392,33 +380,6 @@ fn build_bots(
             }
         })
         .collect())
-}
-
-/// Names in `--bot` order, with the second and later use of a base name
-/// suffixed `-2`, `-3`, …
-fn disambiguate(base_names: &[String]) -> Vec<String> {
-    // Every base name is reserved up front so a generated suffix can never
-    // collide with a name someone chose explicitly (caller, caller,
-    // caller-2 must not yield caller-2 twice).
-    let mut taken: HashSet<String> = base_names.iter().cloned().collect();
-    let mut seen: HashMap<&str, u32> = HashMap::new();
-    base_names
-        .iter()
-        .map(|base| {
-            let count = seen.entry(base.as_str()).or_insert(0);
-            *count += 1;
-            if *count == 1 {
-                return base.clone();
-            }
-            loop {
-                let candidate = format!("{base}-{count}");
-                if taken.insert(candidate.clone()) {
-                    return candidate;
-                }
-                *count += 1;
-            }
-        })
-        .collect()
 }
 
 fn run(args: RunArgs) -> Result<ExitCode, String> {
@@ -503,7 +464,7 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
     };
     let mut bots = build_bots(specs, &hello, timeout)?;
 
-    let seed = args.seed.unwrap_or_else(entropy_seed);
+    let seed = args.seed.unwrap_or_else(poker_arena_cli::entropy_seed);
     if args.seed.is_none() {
         // Surface the generated seed up front too, so long or aborted runs
         // are still reproducible.
@@ -611,22 +572,6 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// A fresh seed for runs that didn't pin one: system time and PID stirred
-/// through splitmix64. Match seeding, not cryptography.
-fn entropy_seed() -> u64 {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
-    let mut state = nanos ^ ((std::process::id() as u64) << 32);
-    // splitmix64 finalizer, same constants as poker-core's RNG seeding.
-    state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    let mut z = state;
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
-}
-
 /// Prints the behavioral profile table: VPIP, PFR, AF, WTSD, WSD, and fold
 /// rate per bot, 3 decimals for rate fields (2 for AF, "inf" when calls are
 /// zero but aggression isn't).
@@ -703,28 +648,5 @@ fn print_report(config: &MatchConfig, result: &poker_arena::MatchResult) {
         } else {
             println!("No statistically significant winner.");
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::disambiguate;
-
-    #[test]
-    fn duplicate_names_get_unique_suffixes_without_colliding() {
-        let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(
-            disambiguate(&names(&["caller", "random", "caller"])),
-            names(&["caller", "random", "caller-2"])
-        );
-        // A generated suffix must never collide with an explicit name.
-        assert_eq!(
-            disambiguate(&names(&["caller", "caller", "caller-2"])),
-            names(&["caller", "caller-3", "caller-2"])
-        );
-        // All-identical field stays fully distinct.
-        let out = disambiguate(&names(&["x", "x", "x", "x"]));
-        let set: std::collections::HashSet<_> = out.iter().collect();
-        assert_eq!(set.len(), 4);
     }
 }

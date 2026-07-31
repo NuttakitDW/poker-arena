@@ -763,3 +763,97 @@ fn wire_bot_plays_a_full_match_over_a_socket() {
     drop(bots);
     peer.join().unwrap();
 }
+
+// ---- reference wire bots, end-to-end over a real subprocess ----
+
+fn ofc_pineapple_hello(timeout_ms: Option<u64>) -> OfcArenaMsg {
+    OfcArenaMsg::Hello {
+        proto: poker_wire::ofc::PROTO_VERSION,
+        game_id: "ofc-pineapple".to_string(),
+        seat_count: 2,
+        timeout_ms,
+    }
+}
+
+/// `wire-placer` (the Rust reference bot, `crates/poker-arena/src/bin/`)
+/// against `greedy` over a spawned-subprocess stdio transport: the bar is
+/// zero faults over a full match, with points still zero-sum.
+#[test]
+fn wire_placer_reference_bot_plays_a_clean_match_via_subprocess() {
+    let spec = poker_core::ofc::OFC_PINEAPPLE;
+    let hands = 20;
+    let mut wire = OfcWireBot::spawn_cmd(
+        env!("CARGO_BIN_EXE_wire-placer"),
+        ofc_pineapple_hello(Some(5_000)),
+        Duration::from_secs(10),
+    )
+    .expect("spawn wire-placer");
+    wire.set_name("wire-placer");
+    wire.set_timeout(Some(Duration::from_secs(5)));
+
+    let mut bots: Vec<Box<dyn OfcBot>> = vec![
+        Box::new(wire),
+        Box::new(OfcGreedy::new("greedy", spec.middle)),
+    ];
+    let result = run_ofc_match(
+        &config(spec, hands, 99, OfcFaultPolicy::Substitute),
+        &mut bots,
+        &mut [],
+        None,
+    )
+    .expect("match runs");
+
+    assert_eq!(result.hands_played, hands);
+    assert_eq!(result.forfeited_by, None);
+    assert_eq!(
+        result.outcomes[0].faults, 0,
+        "the reference bot never faults"
+    );
+    assert_eq!(
+        result.outcomes[0].total_points + result.outcomes[1].total_points,
+        0
+    );
+}
+
+/// `examples/ofc_bot.py` (the dependency-free Python reference client)
+/// against `greedy`, shelled out unconditionally exactly like the wire-bot
+/// tests above shell out to a compiled binary: the repo's bar is zero
+/// faults with python3 present, not a skip when it's missing.
+#[test]
+fn python_reference_bot_plays_a_clean_match_via_subprocess() {
+    let spec = poker_core::ofc::OFC_PINEAPPLE;
+    let hands = 20;
+    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/ofc_bot.py");
+    let command = format!("python3 {script}");
+    let mut wire = OfcWireBot::spawn_cmd(
+        &command,
+        ofc_pineapple_hello(Some(5_000)),
+        Duration::from_secs(10),
+    )
+    .expect("spawn python reference bot");
+    wire.set_name("python-bot");
+    wire.set_timeout(Some(Duration::from_secs(5)));
+
+    let mut bots: Vec<Box<dyn OfcBot>> = vec![
+        Box::new(wire),
+        Box::new(OfcGreedy::new("greedy", spec.middle)),
+    ];
+    let result = run_ofc_match(
+        &config(spec, hands, 100, OfcFaultPolicy::Substitute),
+        &mut bots,
+        &mut [],
+        None,
+    )
+    .expect("match runs");
+
+    assert_eq!(result.hands_played, hands);
+    assert_eq!(result.forfeited_by, None);
+    assert_eq!(
+        result.outcomes[0].faults, 0,
+        "the reference bot never faults"
+    );
+    assert_eq!(
+        result.outcomes[0].total_points + result.outcomes[1].total_points,
+        0
+    );
+}
