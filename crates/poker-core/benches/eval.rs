@@ -10,12 +10,12 @@
 //!
 //! | benchmark | time |
 //! |---|---|
-//! | `rank_five` | ~PLACEHOLDER |
-//! | `high_best_5_of_7` | ~PLACEHOLDER |
-//! | `omaha_exactly_two` | ~PLACEHOLDER |
-//! | `bigo_exactly_two_hilo` | ~PLACEHOLDER |
-//! | `badugi_of_five` | ~PLACEHOLDER |
-//! | `eight_or_better_7` | ~PLACEHOLDER |
+//! | `rank_five` | ~97 ns |
+//! | `high_best_5_of_7` | ~2.1 µs |
+//! | `omaha_exactly_two` | ~9.0 µs |
+//! | `bigo_exactly_two_hilo` | ~40 µs |
+//! | `badugi_of_five` | ~1.7 µs |
+//! | `eight_or_better_7` | ~2.1 µs |
 //!
 //! These numbers are informational — a reviewer's tripwire for "did this
 //! change get 10x slower," not a gate. Nothing in CI enforces them; re-run

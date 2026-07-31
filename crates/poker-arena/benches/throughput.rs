@@ -16,8 +16,8 @@
 //!
 //! | benchmark | hands/iter | throughput |
 //! |---|---|---|
-//! | `heads_up_duplicate_100_decks` | 200 | ~PLACEHOLDER hands/s |
-//! | `six_max_duplicate_20_decks` | 120 | ~PLACEHOLDER hands/s |
+//! | `heads_up_duplicate_100_decks` | 200 | ~112k hands/s (1.8 ms/iter) |
+//! | `six_max_duplicate_20_decks` | 120 | ~45k hands/s (2.7 ms/iter) |
 //!
 //! Informational only — a review-time drift check, not a CI gate. Re-run
 //! `cargo bench -p poker-arena` after touching `runner.rs` or the engine's

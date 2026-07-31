@@ -13,9 +13,9 @@
 //!
 //! | benchmark | time |
 //! |---|---|
-//! | `holdem_nl_heads_up_hand` | ~PLACEHOLDER |
-//! | `holdem_fl_six_max_hand` | ~PLACEHOLDER |
-//! | `triple_draw_hand` | ~PLACEHOLDER |
+//! | `holdem_nl_heads_up_hand` | ~6.5 µs |
+//! | `holdem_fl_six_max_hand` | ~16 µs |
+//! | `triple_draw_hand` | ~4.6 µs |
 //!
 //! Informational only — a review-time drift check, not a CI gate. Re-run
 //! `cargo bench -p poker-core` after touching `game/state.rs` and compare.

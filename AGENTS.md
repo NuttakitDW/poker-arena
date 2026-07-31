@@ -66,5 +66,10 @@ engine; update it in the same change as any rules edit.
   reference bots (`examples/bot.py`, `src/bin/wire-caller.rs`), and the
   pinned-JSON tests together. The protocol is v1 until first release —
   breaking changes stay v1.
+- **Benchmarks**: `cargo bench --workspace` (Criterion; eval + engine
+  micro-benches in `poker-core/benches/`, match throughput in
+  `poker-arena/benches/`). On-demand only — no CI gating; baselines live
+  in each bench file's module doc as review-time drift checks. Re-run and
+  update them after touching the engine hot path or the evaluators.
 - **Test a wire bot end-to-end**: `--bot cmd:"python3 examples/bot.py"`
   runs the reference client over stdio; zero faults is the bar.
