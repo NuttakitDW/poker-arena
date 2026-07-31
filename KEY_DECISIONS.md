@@ -62,12 +62,13 @@ must already know. `act` is decision-tagged (`wager` / `draw` /
 `bring-in`) so each turn is self-describing instead of a bag of Options.
 
 **The event stream is the single source of truth.** `act` carries only
-`hand_no`, `seat`, `legal`, and `deadline_ms`; `hand-start` only `hand_no`
-and `seat`. Table state (cards, board, stacks, pot, folds) is
-reconstructible from events, and shipping it twice invited
-snapshot-vs-events drift. Exception, deliberate: `legal` rides along
-because **action legality is arena-authoritative** — a bot deriving its own
-legality is how off-by-one-chip faults happen. The in-process
+`hand_no`, `seat`, the tagged `decision`, and `deadline_ms`; `hand-start`
+only `hand_no` and `seat`. Table state (cards, board, stacks, pot, folds)
+is reconstructible from events, and shipping it twice invited
+snapshot-vs-events drift. Exception, deliberate: the legal-action bounds
+ride along inside `decision` because **action legality is
+arena-authoritative** — a bot deriving its own legality is how
+off-by-one-chip faults happen. The in-process
 `ActionRequest` stays rich: borrowed slices cost nothing and can't drift.
 Corollary: hand-history logs and transcripts record only the event stream
 (actions appear as `acted` events); `act` requests are per-bot derived

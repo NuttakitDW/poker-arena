@@ -97,13 +97,15 @@ JSON lines (TCP or stdio) — see the section above.
 - **Deterministic dealing**: one RNG stream per deck derived from the match
   seed (in-crate xoshiro256**; the stream is frozen by a snapshot test, so a
   seed reproduces its deals forever).
-- **Duplicate mode** (default): every deck is replayed once per seat
-  rotation, so each bot plays the same cards from every position; a
-  rotation-set is one statistical observation, which removes most card luck
-  from the comparison.
-- **Faults**: illegal actions are never silently patched — they count
-  against the bot and are substituted (check/fold) or forfeit the match,
-  per configuration.
+- **Duplicate mode** (default): each deck draws a seeded-random seating
+  arrangement and is replayed once per rotation of it, so every bot plays
+  the same cards from every position while neighbor arrangements average
+  out across decks; a rotation-set is one statistical observation, which
+  removes most card luck from the comparison.
+- **Faults**: illegal actions, timeouts, and disconnects are never silently
+  patched — they count against the bot and are substituted with the
+  decision's minimal legal action (check/fold, stand pat, bring-in) or
+  forfeit the match, per configuration.
 
 ## Status
 
