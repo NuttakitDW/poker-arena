@@ -8,6 +8,7 @@ pub mod bot;
 pub mod builtin;
 pub mod config;
 pub mod log;
+pub mod ofc;
 pub mod remote;
 pub mod report;
 pub mod runner;
