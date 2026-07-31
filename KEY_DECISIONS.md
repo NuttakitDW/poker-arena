@@ -54,7 +54,7 @@ irrelevant (~10 messages/hand, localhost); every language reads a line and
 calls its JSON parser, so a working bot is ~30 lines with no dependencies
 or codegen. Strict framing (one object per `\n` line, 64 KiB cap), a
 version field, unknown fields ignored, unknown message types tolerated.
-V2's `hello` is deliberately lean — the game id plus only per-match
+The `hello` is deliberately lean — the game id plus only per-match
 parameters (stakes, betting structure and cap, seats, stack, timeout):
 bots are expected to know a game's rules from its id, so serializing the
 full street/showdown structure was rejected as teaching bots what they

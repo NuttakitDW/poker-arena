@@ -1,4 +1,4 @@
-# poker-arena wire protocol (v2)
+# poker-arena wire protocol (v1)
 
 This document specifies the wire protocol bots use to play in poker-arena.
 It is transport- and language-agnostic: anything that can read/write lines
@@ -8,14 +8,10 @@ in `crates/poker-wire` (`message.rs` and `framing.rs` for the envelope,
 payload types); this document and that crate must never drift apart — if you
 change one, change the other.
 
-`PROTO_VERSION = 2`. **Unknown JSON fields must be ignored by bots, and
+`PROTO_VERSION = 1`. **Unknown JSON fields must be ignored by bots, and
 unknown `"t"` (or event `"event"`) values must be skipped/ignored rather
 than treated as errors.** This is how the protocol stays forward-compatible:
 a newer arena can add fields or message types without breaking older bots.
-
-v2 is a clean break from v1 (no backward compatibility): `hello` no longer
-carries game info, and `act` now carries a tagged `decision` instead of a
-flat `legal`. See the `hello` and `act` sections below.
 
 ## Transport options
 
@@ -109,11 +105,11 @@ family:
   offered.
 
 ```json
-{"t":"hello","proto":2,"game_id":"holdem-nl","stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"no-limit"},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
+{"t":"hello","proto":1,"game_id":"holdem-nl","stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"no-limit"},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
 ```
 
 ```json
-{"t":"hello","proto":2,"game_id":"stud-fl","stakes":{"kind":"stud","ante":20,"bring_in":50,"small_bet":100,"big_bet":200},"betting":{"kind":"fixed-limit","raise_cap":4},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
+{"t":"hello","proto":1,"game_id":"stud-fl","stakes":{"kind":"stud","ante":20,"bring_in":50,"small_bet":100,"big_bet":200},"betting":{"kind":"fixed-limit","raise_cap":4},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
 ```
 
 ### `hand-start`
@@ -408,7 +404,7 @@ A complete heads-up no-limit hold'em hand from one bot's point of view
 the whole hand-end-to-hand-end cycle fits in ~20 lines:
 
 ```json
-{"t":"hello","proto":2,"game_id":"holdem-nl","stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"no-limit"},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
+{"t":"hello","proto":1,"game_id":"holdem-nl","stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"no-limit"},"seat_count":2,"starting_stack":10000,"timeout_ms":5000}
 {"t":"join","name":"check-call-bot"}
 {"t":"hand-start","hand_no":1,"seat":0}
 {"t":"event","hand_no":1,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}
@@ -439,7 +435,7 @@ subprocess bot.
 
 ```python
 #!/usr/bin/env python3
-"""Minimal check/call bot for the poker-arena wire protocol (v2)."""
+"""Minimal check/call bot for the poker-arena wire protocol (v1)."""
 import json
 import sys
 

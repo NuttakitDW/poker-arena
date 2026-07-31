@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A minimal poker-arena wire bot in Python (protocol v2, no dependencies).
+"""A minimal poker-arena wire bot in Python (protocol v1, no dependencies).
 
 Reads arena messages from stdin, writes bot messages to stdout — run it with:
 

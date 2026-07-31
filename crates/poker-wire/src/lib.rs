@@ -53,7 +53,7 @@ pub use message::{ArenaMsg, BotMsg, WireDecision};
 pub use value::{HandClass, HandValue};
 
 /// Wire protocol version, exchanged in `ArenaMsg::Hello`.
-pub const PROTO_VERSION: u32 = 2;
+pub const PROTO_VERSION: u32 = 1;
 
 /// Maximum length, in bytes, of a single framed line (including the JSON
 /// payload but not the trailing newline). Lines longer than this are
