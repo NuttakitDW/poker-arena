@@ -28,15 +28,6 @@ pub enum Stakes {
 }
 
 impl Stakes {
-    /// The unit winnings are normalized in (bb/100): the big blind for
-    /// blind games, the small bet for stud.
-    pub fn rate_unit(&self) -> Chips {
-        match self {
-            Stakes::Blinds { big_blind, .. } => *big_blind,
-            Stakes::Stud { small_bet, .. } => *small_bet,
-        }
-    }
-
     /// Small/big blind for blind games; a `Stud` stakes derives
     /// (small_bet / 2, small_bet) so blind-game constructors are total.
     pub fn blinds(&self) -> (Chips, Chips) {

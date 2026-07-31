@@ -408,12 +408,14 @@ alone); `schema_version` bumps on any breaking shape change.
 ### Match report (`--output json`, stdout, once)
 
 ```json
-{"schema_version":1,"game_id":"27td-fl","seed":9,"dealing":"duplicate","decks":50,"hands":100,"seat_count":2,"starting_stack":10000,"stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"fixed-limit","raise_cap":4},"fault_policy":"check-fold","timeout_ms":1000,"rate_unit":"big-blind","forfeited_by":null,"bots":[{"name":"random","hands":100,"total_chips":650,"rate_per100_mean":6.5,"rate_per100_ci95":80.71,"observations":50,"faults":0,"behavior":{"vpip":0.63,"pfr":0.36,"af":1.41,"wtsd":0.11,"wsd":0.47,"fold_rate":0.69}}]}
+{"schema_version":1,"game_id":"27td-fl","seed":9,"dealing":"duplicate","decks":50,"hands":100,"seat_count":2,"starting_stack":10000,"stakes":{"kind":"blinds","small_blind":50,"big_blind":100},"betting":{"kind":"fixed-limit","raise_cap":4},"fault_policy":"check-fold","timeout_ms":1000,"forfeited_by":null,"bots":[{"name":"random","hands":100,"total_chips":650,"chips_per100_mean":650.0,"chips_per100_ci95":8071.0,"observations":50,"faults":0,"behavior":{"vpip":0.63,"pfr":0.36,"af":1.41,"wtsd":0.11,"wsd":0.47,"fold_rate":0.69}}]}
 ```
 
-- `rate_per100_mean` / `rate_per100_ci95`: winnings per 100 hands in
-  `rate_unit`s (`"big-blind"`, or `"small-bet"` for stud); the CI is a
-  two-sided 95% Student-t half-width, `null` under two observations.
+- `chips_per100_mean` / `chips_per100_ci95`: winnings per 100 hands in
+  **chips** — the canonical unit; normalize for display using `stakes` and
+  `betting` (fixed limit: divide by the big bet; pot/no-limit: by the big
+  blind). The CI is a two-sided 95% Student-t half-width, `null` under two
+  observations.
 - `observations`: the sample size behind the interval — hands in seeded
   mode, duplicate rotation-sets in duplicate mode.
 - `behavior.af` is `null` when infinite (no calls but some aggression).
@@ -427,7 +429,7 @@ and/or `--progress-secs S`), one JSON object per line — a live leaderboard
 whose intervals tighten as evidence accumulates:
 
 ```json
-{"decks_done":100,"hands_done":200,"bots":[{"name":"random","total_chips":-4550,"rate_per100_mean":-22.75,"rate_per100_ci95":53.12,"observations":100,"faults":0}]}
+{"decks_done":100,"hands_done":200,"bots":[{"name":"random","total_chips":-4550,"chips_per100_mean":-2275.0,"chips_per100_ci95":5312.0,"observations":100,"faults":0}]}
 ```
 
 Field meanings match the final report. Per-hand detail is a separate

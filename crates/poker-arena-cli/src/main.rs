@@ -564,7 +564,7 @@ fn run(args: RunArgs) -> Result<ExitCode, String> {
     match args.output {
         OutputArg::Human => {
             println!("seed: {seed}");
-            print_report(&result);
+            print_report(&config, &result);
         }
         OutputArg::Json => {
             let report = poker_arena::match_report(&config, seed, &result);
@@ -628,15 +628,23 @@ fn print_behavior_report(result: &poker_arena::MatchResult) {
     }
 }
 
-fn print_report(result: &poker_arena::MatchResult) {
+fn print_report(config: &MatchConfig, result: &poker_arena::MatchResult) {
+    // Conventional display units: big bets for fixed limit ("BB/100"),
+    // big blinds for pot/no-limit ("bb/100"). Stats accumulate in chips.
+    let (divisor, label) = config.spec.rate_unit();
+    let divisor = divisor.max(1) as f64;
     println!(
         "{:<16} {:>10} {:>14} {:>24} {:>7}",
-        "bot", "hands", "total chips", "bb/100 (±ci95)", "faults"
+        "bot",
+        "hands",
+        "total chips",
+        format!("{label} (±ci95)"),
+        "faults"
     );
     for o in &result.outcomes {
-        let mean100 = o.stats.mean() * 100.0;
+        let mean100 = o.stats.mean() * 100.0 / divisor;
         let bb_field = match o.stats.ci95_half_width() {
-            Some(h) => format!("{mean100:+.3} ± {:.3}", h * 100.0),
+            Some(h) => format!("{mean100:+.3} ± {:.3}", h * 100.0 / divisor),
             None => format!("{mean100:+.3} ± n/a"),
         };
         println!(

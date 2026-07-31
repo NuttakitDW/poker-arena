@@ -31,9 +31,6 @@ pub struct MatchReport {
     pub betting: BettingKind,
     pub fault_policy: String,
     pub timeout_ms: Option<u64>,
-    /// The unit `rate_per100_*` is measured in: `"big-blind"` for blind
-    /// games, `"small-bet"` for stud.
-    pub rate_unit: String,
     /// Bot name, when the match ended early by forfeit.
     pub forfeited_by: Option<String>,
     /// In the order bots were seated on the command line.
@@ -46,11 +43,13 @@ pub struct BotReport {
     pub name: String,
     pub hands: u64,
     pub total_chips: i64,
-    /// Mean winnings per 100 hands, in `rate_unit`s.
-    pub rate_per100_mean: f64,
+    /// Mean winnings per 100 hands, in **chips** — the canonical unit.
+    /// Consumers normalize for display via `stakes`/`betting` (fixed
+    /// limit: divide by the big bet; pot/no-limit: by the big blind).
+    pub chips_per100_mean: f64,
     /// Two-sided 95% Student-t half-width of the mean, same scale;
     /// `null` with fewer than two observations.
-    pub rate_per100_ci95: Option<f64>,
+    pub chips_per100_ci95: Option<f64>,
     /// Statistical observations behind the interval (hands in seeded mode,
     /// duplicate rotation-sets in duplicate mode).
     pub observations: u64,
@@ -85,8 +84,8 @@ pub struct ProgressReport {
 pub struct BotProgress {
     pub name: String,
     pub total_chips: i64,
-    pub rate_per100_mean: f64,
-    pub rate_per100_ci95: Option<f64>,
+    pub chips_per100_mean: f64,
+    pub chips_per100_ci95: Option<f64>,
     pub observations: u64,
     pub faults: u64,
 }
@@ -113,14 +112,13 @@ mod tests {
             betting: BettingKind::FixedLimit { raise_cap: Some(4) },
             fault_policy: "check-fold".into(),
             timeout_ms: Some(1_000),
-            rate_unit: "big-blind".into(),
             forfeited_by: None,
             bots: vec![BotReport {
                 name: "caller".into(),
                 hands: 100,
                 total_chips: 650,
-                rate_per100_mean: 6.5,
-                rate_per100_ci95: Some(80.7),
+                chips_per100_mean: 650.0,
+                chips_per100_ci95: Some(8070.0),
                 observations: 50,
                 faults: 0,
                 behavior: BehaviorReport {
@@ -142,8 +140,8 @@ mod tests {
             bots: vec![BotProgress {
                 name: "caller".into(),
                 total_chips: -4550,
-                rate_per100_mean: -22.75,
-                rate_per100_ci95: Some(53.1),
+                chips_per100_mean: -2275.0,
+                chips_per100_ci95: Some(5310.0),
                 observations: 100,
                 faults: 0,
             }],

@@ -8,8 +8,6 @@ pub use poker_wire::report::{
     BehaviorReport, BotProgress, BotReport, MatchReport, ProgressReport, REPORT_SCHEMA_VERSION,
 };
 
-use poker_wire::game::Stakes;
-
 use crate::behavior::BehaviorStats;
 use crate::config::{DealingMode, FaultPolicy, MatchConfig};
 use crate::runner::{MatchResult, Progress};
@@ -37,7 +35,6 @@ pub fn match_report(config: &MatchConfig, seed: u64, result: &MatchResult) -> Ma
         }
         .to_string(),
         timeout_ms: config.timeout.map(|d| d.as_millis() as u64),
-        rate_unit: rate_unit_name(config.spec.stakes).to_string(),
         forfeited_by: result.forfeited_by.map(|b| result.outcomes[b].name.clone()),
         bots: result
             .outcomes
@@ -46,8 +43,8 @@ pub fn match_report(config: &MatchConfig, seed: u64, result: &MatchResult) -> Ma
                 name: o.name.clone(),
                 hands: result.hands_played,
                 total_chips: o.total_net_chips,
-                rate_per100_mean: o.stats.mean() * 100.0,
-                rate_per100_ci95: o.stats.ci95_half_width().map(|hw| hw * 100.0),
+                chips_per100_mean: o.stats.mean() * 100.0,
+                chips_per100_ci95: o.stats.ci95_half_width().map(|hw| hw * 100.0),
                 observations: o.stats.count(),
                 faults: o.faults,
                 behavior: behavior_report(&o.behavior),
@@ -67,8 +64,8 @@ pub fn progress_report(progress: &Progress<'_>) -> ProgressReport {
             .map(|s| BotProgress {
                 name: s.name.clone(),
                 total_chips: s.total_chips,
-                rate_per100_mean: s.mean * 100.0,
-                rate_per100_ci95: s.ci95.map(|hw| hw * 100.0),
+                chips_per100_mean: s.mean * 100.0,
+                chips_per100_ci95: s.ci95.map(|hw| hw * 100.0),
                 observations: s.observations,
                 faults: s.faults,
             })
@@ -88,20 +85,13 @@ fn behavior_report(b: &BehaviorStats) -> BehaviorReport {
     }
 }
 
-fn rate_unit_name(stakes: Stakes) -> &'static str {
-    match stakes {
-        Stakes::Blinds { .. } => "big-blind",
-        Stakes::Stud { .. } => "small-bet",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::bot::Bot;
     use crate::builtin::{Caller, Random};
     use crate::runner::run_match;
-    use poker_core::game::GameSpec;
+    use poker_core::game::{GameSpec, Stakes};
 
     #[test]
     fn report_serializes_with_consistent_totals() {
@@ -130,7 +120,6 @@ mod tests {
         assert_eq!(json["seed"], 5);
         assert_eq!(json["dealing"], "duplicate");
         assert_eq!(json["hands"], 40);
-        assert_eq!(json["rate_unit"], "big-blind");
         assert_eq!(json["stakes"]["kind"], "blinds");
         assert_eq!(json["betting"]["kind"], "no-limit");
         assert!(json["forfeited_by"].is_null());
@@ -145,7 +134,7 @@ mod tests {
         for b in bots {
             assert_eq!(b["observations"], 20, "duplicate: one obs per deck");
             assert_eq!(b["hands"], 40);
-            assert!(b["rate_per100_ci95"].as_f64().unwrap() >= 0.0);
+            assert!(b["chips_per100_ci95"].as_f64().unwrap() >= 0.0);
             let vpip = b["behavior"]["vpip"].as_f64().unwrap();
             assert!((0.0..=1.0).contains(&vpip));
         }

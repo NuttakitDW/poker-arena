@@ -87,9 +87,12 @@ solvers may drive with any geometry.
 **Duplicate dealing is the variance killer.** Each deck is replayed once
 per cyclic seat rotation, so every bot plays the same cards from every
 position; the rotation-set mean is a single statistical observation.
-Headline result: mean net in big blinds per hand with a two-sided 95%
-Student-t interval. Fixed-limit and stud rates are normalized in small
-bets (`Stakes::rate_unit`).
+Headline result: mean net per 100 hands with a two-sided 95% Student-t
+interval. **Units** (owner ruling): statistics accumulate and serialize in
+*chips* — the canonical, ambiguity-free unit (a `BB`-vs-`bb` case
+distinction in JSON is a bug generator); the CLI displays the conventional
+poker unit, big bets ("BB/100") for fixed-limit games and big blinds
+("bb/100") for pot/no-limit, via `GameSpec::rate_unit`.
 
 **Per-deck random arrangement on top of rotation (multiway).** Cyclic
 rotation alone preserves the circular order of bots, so "who acts after

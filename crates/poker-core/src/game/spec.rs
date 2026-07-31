@@ -666,6 +666,16 @@ impl GameSpec {
         }
     }
 
+    /// The conventional win-rate unit for this game: fixed-limit games
+    /// report in big bets ("BB/100"), pot-limit and no-limit in big blinds
+    /// ("bb/100"). Returns the chip divisor and the human label.
+    pub fn rate_unit(&self) -> (Chips, &'static str) {
+        match self.betting {
+            BettingKind::FixedLimit { .. } => (self.stakes.tiers().1, "BB/100"),
+            BettingKind::PotLimit | BettingKind::NoLimit => (self.stakes.blinds().1, "bb/100"),
+        }
+    }
+
     /// Fixed-limit bet size for a tier under these stakes.
     pub fn tier_size(&self, tier: BetTier) -> Chips {
         let (small_bet, big_bet) = self.stakes.tiers();
@@ -693,9 +703,12 @@ mod tests {
     };
 
     #[test]
-    fn rate_unit_is_big_blind_for_blinds_and_small_bet_for_stud() {
-        assert_eq!(BLINDS.rate_unit(), 100);
-        assert_eq!(STUD.rate_unit(), 100);
+    fn rate_unit_is_big_bets_for_fixed_limit_and_big_blinds_otherwise() {
+        assert_eq!(GameSpec::holdem_nl(BLINDS).rate_unit(), (100, "bb/100"));
+        assert_eq!(GameSpec::omaha_pl(BLINDS).rate_unit(), (100, "bb/100"));
+        assert_eq!(GameSpec::holdem_fl(BLINDS).rate_unit(), (200, "BB/100"));
+        assert_eq!(GameSpec::stud_fl(BLINDS).rate_unit(), (200, "BB/100"));
+        assert_eq!(GameSpec::td27_fl(BLINDS).rate_unit(), (200, "BB/100"));
     }
 
     #[test]

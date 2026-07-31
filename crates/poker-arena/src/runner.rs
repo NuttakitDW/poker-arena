@@ -40,7 +40,7 @@ pub struct Progress<'a> {
 pub struct Standing {
     pub name: String,
     pub total_chips: i64,
-    /// Mean winnings per hand so far, in the game's rate unit.
+    /// Mean winnings per hand so far, in chips.
     pub mean: f64,
     /// 95% Student-t half-width of the mean; `None` under two observations.
     pub ci95: Option<f64>,
@@ -74,12 +74,11 @@ pub struct BotOutcome {
     /// Sum of this bot's actual per-hand net chips over every hand played
     /// (not the variance-reduced observations used for `stats`).
     pub total_net_chips: i64,
-    /// Observations in [`Stakes::rate_unit`](poker_core::game::Stakes::rate_unit)
-    /// units *per hand* (Seeded), or that same unit *averaged over a
-    /// duplicate rotation set* (Duplicate) — see the module docs on
-    /// [`crate::config::DealingMode`]. The unit is the big blind for blind
-    /// games (hold'em, Omaha, draw) and the small bet for stud games —
-    /// so cross-family comparisons of this field are not apples-to-apples.
+    /// Observations in **chips** per hand (Seeded), or chips per hand
+    /// *averaged over a duplicate rotation set* (Duplicate) — see the module
+    /// docs on [`crate::config::DealingMode`]. Chips are the canonical unit;
+    /// presentation layers normalize via `GameSpec::rate_unit` (big bets for
+    /// fixed limit, big blinds for pot/no-limit).
     pub stats: RateStats,
     pub faults: u64,
     /// This bot's behavioral profile (VPIP/PFR/AF/WTSD/WSD/fold rate)
@@ -155,8 +154,6 @@ pub fn run_match(
         return Err(MatchError::Empty);
     }
 
-    let rate_unit = config.spec.stakes.rate_unit().max(1) as f64;
-
     let mut totals = vec![0i64; n];
     let mut stats: Vec<RateStats> = vec![RateStats::new(); n];
     let mut faults = vec![0u64; n];
@@ -211,14 +208,14 @@ pub fn run_match(
             }
             if config.dealing == DealingMode::Seeded {
                 for (bot_stats, &net) in stats.iter_mut().zip(&outcome.nets) {
-                    bot_stats.push(net as f64 / rate_unit);
+                    bot_stats.push(net as f64);
                 }
             }
         }
 
         if config.dealing == DealingMode::Duplicate {
             for (bot_stats, &sum) in stats.iter_mut().zip(&deck_net_sum) {
-                bot_stats.push((sum as f64 / n as f64) / rate_unit);
+                bot_stats.push(sum as f64 / n as f64);
             }
         }
 
