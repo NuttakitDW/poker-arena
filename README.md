@@ -1,4 +1,4 @@
-# poker-arena
+# Poker Arena Engine ⚙️
 
 A place for poker bots to compete to see which is better — a Rust library and
 CLI supporting multiple poker variants, with statistically sound comparison
