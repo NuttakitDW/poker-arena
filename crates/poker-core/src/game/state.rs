@@ -791,7 +791,8 @@ impl HandState {
 
         let mut ev = vec![Event::DrawResult {
             seat,
-            discarded: cards.len() as u8,
+            count: cards.len() as u8,
+            discarded: cards.clone(),
             drawn,
         }];
         match self.next_drawer(seat) {

@@ -602,9 +602,7 @@ fn kind_of(event: &Event) -> String {
         Event::DealCommunity { .. } => "deal-community".into(),
         Event::DealUp { seat, cards } => format!("deal-up:{seat}:{}", cards.len()),
         Event::Acted { seat, action, .. } => format!("acted:{seat}:{}", action_tag(action)),
-        Event::DrawResult {
-            seat, discarded, ..
-        } => format!("draw:{seat}:{discarded}"),
+        Event::DrawResult { seat, count, .. } => format!("draw:{seat}:{count}"),
         Event::ShowdownShow { seat, cards, .. } => format!("show:{seat}:{}", cards.len()),
         Event::PotAwarded { pot, .. } => format!("award:{pot}"),
         Event::HandEnd { .. } => "hand-end".into(),

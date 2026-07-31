@@ -217,8 +217,9 @@ mod tests {
             },
             Event::DrawResult {
                 seat: 0,
-                discarded: 1,
+                discarded: vec![c(Rank::King, Suit::Clubs)],
                 drawn: vec![c(Rank::Ace, Suit::Hearts)],
+                count: 1,
             },
             Event::ShowdownShow {
                 seat: 0,

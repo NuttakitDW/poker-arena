@@ -206,8 +206,9 @@ fn discards_must_be_distinct_cards_the_seat_holds() {
         ev[0],
         Event::DrawResult {
             seat: 1,
-            discarded: 0,
+            discarded: Vec::new(),
             drawn: Vec::new(),
+            count: 0,
         }
     );
     assert_eq!(hand.hole_cards(1), &before_hole[..]);
@@ -597,8 +598,9 @@ fn draw_results_keep_the_drawn_cards_private() {
         result,
         &Event::DrawResult {
             seat: 1,
-            discarded: 2,
+            discarded: cards("2c 3d"),
             drawn: cards("9d 8s"),
+            count: 2,
         }
     );
     assert_eq!(result.redacted_for(Some(1)), *result, "the owner sees all");
@@ -607,10 +609,11 @@ fn draw_results_keep_the_drawn_cards_private() {
             result.redacted_for(observer),
             Event::DrawResult {
                 seat: 1,
-                discarded: 2,
+                discarded: Vec::new(),
                 drawn: Vec::new(),
+                count: 2,
             },
-            "the discard count stays public, the replacements do not"
+            "the count stays public; discards and replacements do not"
         );
     }
 }
@@ -712,9 +715,7 @@ fn random_draw_hands_hold_every_invariant() {
                     }
                     draws += events
                         .iter()
-                        .filter(
-                            |e| matches!(e, Event::DrawResult { discarded, .. } if *discarded > 0),
-                        )
+                        .filter(|e| matches!(e, Event::DrawResult { count, .. } if *count > 0))
                         .count();
                 }
             }

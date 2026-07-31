@@ -231,8 +231,9 @@ fn draw_sits_between_flop_and_turn_with_no_betting() {
         ev1,
         vec![Event::DrawResult {
             seat: 1,
-            discarded: 0,
+            discarded: Vec::new(),
             drawn: Vec::new(),
+            count: 0,
         }],
         "no betting event sits between the two draws"
     );
@@ -257,8 +258,9 @@ fn draw_sits_between_flop_and_turn_with_no_betting() {
         ev2[0],
         Event::DrawResult {
             seat: 0,
-            discarded: 0,
+            discarded: Vec::new(),
             drawn: Vec::new(),
+            count: 0,
         }
     );
     assert_eq!(

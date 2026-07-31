@@ -32,7 +32,6 @@ class Table:
         self.hole = []
         self.pot = 0
         self.commits = {}
-        self.chosen_discards = []
 
     def hand_start(self, msg):
         self.seat = msg["seat"]
@@ -53,7 +52,8 @@ class Table:
         elif kind == "deal-hole" and ev["seat"] == self.seat and ev["cards"]:
             self.hole.extend(ev["cards"])  # extend: stud deals down cards twice
         elif kind == "draw-result" and ev["seat"] == self.seat:
-            self.hole = [c for c in self.hole if c not in self.chosen_discards]
+            # Own events are unredacted: discarded lists exactly what left.
+            self.hole = [c for c in self.hole if c not in ev["discarded"]]
             self.hole.extend(ev["drawn"])
 
 
@@ -64,8 +64,7 @@ def decide(table, decision):
     # Draw streets: discard high cards, up to the offered max.
     if kind == "draw":
         high = [c for c in table.hole if c[0] in "9TJQKA"]
-        table.chosen_discards = high[: decision["max_discards"]]
-        return {"kind": "discard", "cards": table.chosen_discards}
+        return {"kind": "discard", "cards": high[: decision["max_discards"]]}
 
     # Stud: always post the forced bring-in rather than completing.
     if kind == "bring-in":

@@ -75,10 +75,14 @@ pub enum Event {
         all_in: bool,
     },
     /// Draw-street result: discard count is public, `drawn` private.
+    /// `discarded` and `drawn` are private to `seat` (real-table
+    /// visibility: opponents see only how many cards changed); observers
+    /// keep `count`.
     DrawResult {
         seat: Seat,
-        discarded: u8,
+        discarded: Vec<Card>,
         drawn: Vec<Card>,
+        count: u8,
     },
     /// A hand revealed at showdown (all non-folded hands are revealed; there
     /// is no mucking in an arena — information hiding between bots across
@@ -117,14 +121,11 @@ impl Event {
                 cards: Vec::new(),
                 count: *count,
             },
-            Event::DrawResult {
-                seat,
-                discarded,
-                drawn,
-            } if observer != Some(*seat) => Event::DrawResult {
+            Event::DrawResult { seat, count, .. } if observer != Some(*seat) => Event::DrawResult {
                 seat: *seat,
-                discarded: *discarded,
+                discarded: Vec::new(),
                 drawn: Vec::new(),
+                count: *count,
             },
             other => other.clone(),
         }

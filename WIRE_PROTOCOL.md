@@ -300,7 +300,7 @@ hand logs record, so the wire form and the log form cannot drift apart.
 | `deal-community` | `street, cards: [Card]`                                            |
 | `deal-up`        | `seat, cards: [Card]` (stud upcards; public)                   |
 | `acted`          | `seat, action: Action, street_commit, all_in`                      |
-| `draw-result`    | `seat, discarded, drawn: [Card]` (`drawn` redacted like `deal-hole`) |
+| `draw-result`    | `seat, discarded: [Card], drawn: [Card], count` (`discarded`/`drawn` private to the seat; observers keep `count`) |
 | `showdown-show`  | `seat, cards: [Card], hi: HandValue\|null, lo: HandValue\|null`    |
 | `pot-awarded`    | `pot, side: "whole"\|"hi"\|"lo", winners: [[seat, amount], ...]`    |
 | `hand-end`       | `nets: [i64]`                                                       |
