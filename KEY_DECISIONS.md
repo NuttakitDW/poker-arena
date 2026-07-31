@@ -226,5 +226,5 @@ bring-in = small bet / 2).
 including delegated work.
 
 **Docs describe the present.** Internal milestone labels don't belong in
-shipped docs or comments; `README.md` states features, `DESIGN.md` keeps
-the roadmap, this file keeps the reasoning.
+shipped docs or comments; `README.md` states features, `DESIGN.md` describes
+the architecture, this file keeps the reasoning.

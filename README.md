@@ -5,7 +5,7 @@ CLI supporting multiple poker variants, with statistically sound comparison
 (seeded reproducible dealing, duplicate-deal variance reduction, 95%
 confidence intervals).
 
-See [DESIGN.md](DESIGN.md) for the full architecture and roadmap, and
+See [DESIGN.md](DESIGN.md) for the architecture, and
 [KEY_DECISIONS.md](KEY_DECISIONS.md) for the design decisions and the
 reasoning behind them.
 
