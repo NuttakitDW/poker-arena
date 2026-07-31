@@ -803,7 +803,8 @@ mod tests {
             Box::new(Caller::new("caller")),
             Box::new(Random::new("random", 2)),
         ];
-        let mut ticks: Vec<(u64, u64, Vec<(String, i64, u64)>)> = Vec::new();
+        type Tick = (u64, u64, Vec<(String, i64, u64)>);
+        let mut ticks: Vec<Tick> = Vec::new();
         let mut cb = |p: &Progress<'_>| {
             ticks.push((
                 p.decks_done,
