@@ -276,11 +276,16 @@ normalize by, so reports carry raw points and points/hand ± CI, one
 observation per hand.
 
 **Rules follow one source, seat caps follow the card math.** All four
-variants take their royalty schedules, foul rules, and fantasyland
-entry/stay conditions from SWC's rule sheets (one consistent dialect rather
-than a mix); the operator-chosen seat caps are card-exact — classic OFC
-seats 4 (4 × 13 = 52), the pineapple family seats 3 (3 × 17 = 51) — so the
-deck can never run out mid-hand and no reshuffle rule is needed.
+variants take their royalty schedules, foul rules, and fantasyland entry
+conditions from SWC's rule sheets (one consistent dialect rather than a
+mix). (Revisited: SWC's *stay* conditions gave the whole family a
+middle-full-house stay; the owner ruled that the pineapple variants follow
+ofcstrategy.com instead — stays are top trips or bottom quads+ only, with
+classic `ofc` alone keeping the middle full house stay. Encoded as data:
+`FantasylandRule::Classic { middle_stay }`.) The operator-chosen seat caps
+are card-exact — classic OFC seats 4 (4 × 13 = 52), the pineapple family
+seats 3 (3 × 17 = 51) — so the deck can never run out mid-hand and no
+reshuffle rule is needed.
 
 **Fantasyland is per-bot state and never alters the hand count.** It
 follows the bot through seat rotation (earned in one seat, played wherever

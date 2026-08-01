@@ -223,7 +223,7 @@ fn enters(spec: &OfcSpec, board: &Board, ev: &Evaluated) -> Option<u8> {
     let pair_at_least = |r: Rank| class == HandClass::OnePair && rank >= r.index();
 
     match spec.fantasyland {
-        FantasylandRule::Classic { cards } => {
+        FantasylandRule::Classic { cards, .. } => {
             (trips || pair_at_least(Rank::Queen)).then_some(cards)
         }
         FantasylandRule::Progressive => {
@@ -253,16 +253,24 @@ fn enters(spec: &OfcSpec, board: &Board, ev: &Evaluated) -> Option<u8> {
 
 /// Stay from a fantasyland hand. The reward is always the variant's base
 /// count, however strong the qualifying row.
+///
+/// Top trips or bottom quads+ stay in every variant; a middle full house or
+/// better additionally stays only where `Classic { middle_stay: true }` says
+/// so (classic OFC). The pineapple family — plain, progressive and 2-7 —
+/// stays on the top and bottom conditions alone (and a 2-7 middle is a
+/// lowball hand with no full house to reach for anyway).
 fn stays(spec: &OfcSpec, ev: &Evaluated) -> bool {
     let top_trips = ev.values.top.high_class() == HandClass::Trips;
     let bottom_quads = ev.values.bottom.high_class() >= HandClass::Quads;
-    match spec.fantasyland {
-        FantasylandRule::Classic { .. } | FantasylandRule::Progressive => {
-            top_trips || ev.values.middle.high_class() >= HandClass::FullHouse || bottom_quads
-        }
-        // A 2-7 middle has no "full house or better" to reach for.
-        FantasylandRule::DeuceMiddle => top_trips || bottom_quads,
-    }
+    let middle_full_house = match spec.fantasyland {
+        // Only read the middle as a high hand where the rule wants it: a 2-7
+        // middle's value is the lowball encoding, meaningless to high_class.
+        FantasylandRule::Classic {
+            middle_stay: true, ..
+        } => ev.values.middle.high_class() >= HandClass::FullHouse,
+        _ => false,
+    };
+    top_trips || bottom_quads || middle_full_house
 }
 
 /// Settle a hand: score every unordered pair of seats and sum the results.

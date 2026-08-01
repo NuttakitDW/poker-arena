@@ -113,9 +113,10 @@
 //!   at once → 15. A suited 7-5-4-3-2 is a flush, not a qualifying 2-7 low,
 //!   and does not count.
 //! - **Stay** (only from a fantasyland, non-fouled hand) grants the variant's
-//!   base count — 13 for `ofc`, 14 otherwise: `ofc`/`ofc-pineapple`/
-//!   `ofc-progressive` on top trips, middle full house or better, or bottom
-//!   quads or better; `ofc-27` on top trips or bottom quads or better.
+//!   base count — 13 for `ofc`, 14 otherwise. Top trips or bottom quads or
+//!   better stay in every variant; classic `ofc` alone additionally stays on
+//!   a middle full house or better. The pineapple family (`ofc-pineapple`,
+//!   `ofc-progressive`, `ofc-27`) has no middle stay condition.
 //! - A seat already in fantasyland can only stay; a seat outside it can only
 //!   enter.
 //!

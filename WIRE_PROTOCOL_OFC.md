@@ -42,12 +42,42 @@ and pays six plus royalties to every non-fouled opponent.
 | `ofc-progressive` | 2–3 | pineapple structure | high | QQ→14, KK→15, AA→16, trips→17 |
 | `ofc-27` | 2–3 | pineapple structure | 2-7 low, ten-low qualifier | KK+ top or 7-5-4-3-2 middle → 14; both → 15 |
 
+### Fantasyland
+
 Fantasyland is a property of the *next* hand: the qualifying seat is dealt
 all its cards at once, places 13 with its board hidden until showdown, and
-discards the rest. It never changes how many hands a match plays. Staying
-in fantasyland (from a fantasyland hand: top trips, middle full house+ or
-bottom quads+ — for `ofc-27`, top trips or bottom quads+ only) grants the
-variant's base count again (13 for `ofc`, 14 otherwise).
+discards the rest. It never changes how many hands a match plays. Two
+preconditions govern everything below: a **fouled board never qualifies**,
+and **entry and stay are exclusive** — a seat not in fantasyland can only
+*enter*, a seat in fantasyland can only *stay* (making QQ+ on top while in
+fantasyland does not re-enter).
+
+**Entry** (top row unless noted):
+
+| game | condition | cards dealt |
+|---|---|---|
+| `ofc` | pair QQ+ or any trips | 13 |
+| `ofc-pineapple` | pair QQ+ or any trips | 14 |
+| `ofc-progressive` | pair QQ / KK / AA / any trips | 14 / 15 / 16 / 17 |
+| `ofc-27` | pair KK+ or trips, **or** exactly 7-5-4-3-2 middle | 14; both at once → 15 |
+
+An `ofc-27` middle of 7-5-4-3-2 in one suit does not count: that hand is a
+flush, which is no 2-7 low at all — it fails the ten-low qualifier and
+fouls the board.
+
+**Stay** (repeating from a fantasyland hand; always grants the variant's
+base count, however strong the qualifying row):
+
+| game | condition | cards dealt |
+|---|---|---|
+| `ofc` | top trips, or middle full house+, or bottom quads+ | 13 |
+| `ofc-pineapple` | top trips or bottom quads+ | 14 |
+| `ofc-progressive` | top trips or bottom quads+ (the entry ladder does not apply to stays) | 14 |
+| `ofc-27` | top trips or bottom quads+ | 14 |
+
+The earned count is announced in the seat's `showdown` event as
+`next_fantasyland`, and again at the top of the next hand as its
+`fantasyland` event.
 
 ## Handshake
 

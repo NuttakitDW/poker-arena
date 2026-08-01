@@ -1540,3 +1540,35 @@ fn every_per_seat_iteration_walks_table_order() {
         }
     }
 }
+
+// ---- fantasyland stay schedules ----
+
+#[test]
+fn a_middle_full_house_stays_only_in_classic_ofc() {
+    // Middle full house, top safely below it, bottom above it but short of
+    // quads — so the middle is the only possible stay condition.
+    let board = board_of("Kc Qd 2h", "8c 8d 8h 2c 2d", "Ac Ad Ah Kd Ks");
+    for (spec, expected) in [
+        (&OFC, Some(13)),
+        (&OFC_PINEAPPLE, None),
+        (&OFC_PROGRESSIVE, None),
+    ] {
+        let ev = score::evaluate(spec, &board);
+        assert!(!ev.fouled, "{}: fixture must not foul", spec.id);
+        assert_eq!(
+            score::fantasyland(spec, &board, &ev, true),
+            expected,
+            "{}: middle full house stay",
+            spec.id
+        );
+        // The same boards stay everywhere once the bottom reaches quads.
+        let quads = board_of("Kc Qd 2h", "8c 8d 8h 2c 2d", "Ac Ad Ah As Ks");
+        let ev = score::evaluate(spec, &quads);
+        assert_eq!(
+            score::fantasyland(spec, &quads, &ev, true),
+            Some(spec.fantasyland_base()),
+            "{}: bottom quads stay",
+            spec.id
+        );
+    }
+}

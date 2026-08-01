@@ -35,7 +35,10 @@ pub enum MiddleKind {
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum FantasylandRule {
     /// Queens or better in the top row (pair or trips) grants a flat `cards`.
-    Classic { cards: u8 },
+    /// `middle_stay` says whether a middle full house or better also repeats
+    /// fantasyland: true for classic OFC, false for pineapple, whose stays
+    /// are top trips / bottom quads+ only.
+    Classic { cards: u8, middle_stay: bool },
     /// Top QQ → 14, KK → 15, AA → 16, any top trips → 17.
     Progressive,
     /// Top KK+ (pair or trips) or an exact 7-5-4-3-2 middle → 14; both → 15.
@@ -82,7 +85,7 @@ impl OfcSpec {
     /// every pineapple-structured variant.
     pub const fn fantasyland_base(&self) -> u8 {
         match self.fantasyland {
-            FantasylandRule::Classic { cards } => cards,
+            FantasylandRule::Classic { cards, .. } => cards,
             FantasylandRule::Progressive | FantasylandRule::DeuceMiddle => 14,
         }
     }
@@ -103,7 +106,10 @@ pub const OFC: OfcSpec = OfcSpec {
     round_deal: 1,
     round_place: 1,
     middle: MiddleKind::High,
-    fantasyland: FantasylandRule::Classic { cards: 13 },
+    fantasyland: FantasylandRule::Classic {
+        cards: 13,
+        middle_stay: true,
+    },
 };
 
 /// Pineapple OFC: three cards a round, place two and discard one.
@@ -117,7 +123,10 @@ pub const OFC_PINEAPPLE: OfcSpec = OfcSpec {
     round_deal: 3,
     round_place: 2,
     middle: MiddleKind::High,
-    fantasyland: FantasylandRule::Classic { cards: 14 },
+    fantasyland: FantasylandRule::Classic {
+        cards: 14,
+        middle_stay: false,
+    },
 };
 
 /// Pineapple OFC with the progressive fantasyland schedule.
