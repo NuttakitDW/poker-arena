@@ -3,7 +3,7 @@
 This directory holds hand-picked, verified-interesting hands for each of the
 twenty registered betting-game variants — real output from `poker-arena run
 --log`, not synthetic examples — plus the four registered Open Face Chinese
-(OFC) variants, real output from the separate `poker-arena-ofc run --log`.
+(OFC) variants, real output from the same binary's `run --log` on an OFC game.
 OFC is a different binary, a different registry, and a different wire
 protocol (no chips, no betting, no pot — see "OFC transcripts" below and
 `WIRE_PROTOCOL_OFC.md`), but the same curation discipline applies: every
@@ -1100,8 +1100,8 @@ against the engine's own `pot-awarded` winner, not guessed.
 
 ## OFC transcripts
 
-Four more files, one per registered `poker-arena-ofc` variant
-(`poker-arena-ofc games` lists them). OFC has no chips, no betting, no pot,
+Four more files, one per registered OFC variant
+(`poker-arena games` lists them under the `ofc` family). OFC has no chips, no betting, no pot,
 and no legal-actions surface — only placement decisions — so its wire
 protocol (`WIRE_PROTOCOL_OFC.md`) and its log format are both entirely
 different from the twenty games above. The authoritative rules contract is
@@ -1147,7 +1147,7 @@ full as they happen, not just at showdown. Hand 249 in `ofc.jsonl` and hand
 show the placing seat's full board being built turn by turn, something no
 live opponent bot would see until that hand's `showdown` line.
 
-**Fantasyland is carried by the bot, not the seat.** `poker-arena-ofc`
+**Fantasyland is carried by the bot, not the seat.** The OFC runner
 rotates bots through seats every hand for positional fairness (bot `b` sits
 at seat `(b + hand_no) % n`; see the module doc at the top of
 `crates/poker-arena/src/ofc/runner.rs`), but a `showdown` event's
@@ -1171,15 +1171,16 @@ hands. A seat's net is the sum over all its pairs, and every hand's nets sum
 to zero. Royalty tables (top pairs/trips are rank-scaled; middle and bottom
 are flat per hand class) are in the module doc.
 
-**Build.** Same crate as the twenty games above: `cargo build --release -p
-poker-arena-cli` also produces `./target/release/poker-arena-ofc`. Each
-section below gives the exact command used for that variant's source match,
-plus which hand numbers were kept from it.
+**Build.** The same one binary as the twenty games above:
+`cargo build --release -p poker-arena-cli` — OFC variants run through
+`poker-arena run --game ofc…` like any other game. Each section below gives
+the exact command used for that variant's source match, plus which hand
+numbers were kept from it.
 
 **`WIRE_PROTOCOL_OFC.md`'s example transcript, captured.** That document's
 "Example transcript" section (a wire-bot's-eye view of one hand, seed 113)
 says to regenerate it with the capture recipe here: it was captured with
-`poker-arena-ofc run --game ofc-pineapple --bot builtin:greedy --bot
+`poker-arena run --game ofc-pineapple --bot builtin:greedy --bot
 cmd:"python3 <capture wrapper>" --hands 1 --seed 113`, where `<capture
 wrapper>` is `examples/ofc_bot.py` modified to tee each line it receives to a
 file prefixed `"< "` and each line it sends prefixed `"> "`, in the order
@@ -1193,7 +1194,7 @@ makes no such promise and needs no such note.
 ## ofc — Open Face Chinese
 
 ```sh
-./target/release/poker-arena-ofc run --game ofc --hands 400 --seed 7 \
+./target/release/poker-arena run --game ofc --hands 400 --seed 7 \
   --bot builtin:greedy --bot builtin:random --bot builtin:filler \
   --bot builtin:random:9 --log ofc.log
 ```
@@ -1235,7 +1236,7 @@ comparison.
 ## ofc-pineapple — Pineapple OFC
 
 ```sh
-./target/release/poker-arena-ofc run --game ofc-pineapple --hands 200 \
+./target/release/poker-arena run --game ofc-pineapple --hands 200 \
   --seed 7 --bot builtin:greedy --bot builtin:random --bot builtin:filler \
   --log ofc-pineapple.log
 ```
@@ -1270,7 +1271,7 @@ showdown.
 ## ofc-progressive — Progressive Pineapple OFC
 
 ```sh
-./target/release/poker-arena-ofc run --game ofc-progressive --hands 1000 \
+./target/release/poker-arena run --game ofc-progressive --hands 1000 \
   --seed 2 --bot builtin:greedy --bot builtin:random --bot builtin:filler \
   --log ofc-progressive.log
 ```
@@ -1300,7 +1301,7 @@ a few thousand hands each.
 ## ofc-27 — 2-7 Pineapple OFC
 
 ```sh
-./target/release/poker-arena-ofc run --game ofc-27 --hands 2100 --seed 7 \
+./target/release/poker-arena run --game ofc-27 --hands 2100 --seed 7 \
   --bot builtin:greedy --bot builtin:random --bot builtin:filler \
   --log ofc-27.log
 ```

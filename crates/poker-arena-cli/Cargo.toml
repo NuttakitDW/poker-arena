@@ -12,14 +12,6 @@ poker-wire = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true }
 
-[lib]
-name = "poker_arena_cli"
-path = "src/lib.rs"
-
 [[bin]]
 name = "poker-arena"
 path = "src/main.rs"
-
-[[bin]]
-name = "poker-arena-ofc"
-path = "src/ofc.rs"

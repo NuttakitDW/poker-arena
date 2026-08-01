@@ -135,9 +135,9 @@ so every run is reproducible after the fact via `--seed`.
 **Faults are never silently patched.** An illegal action, timeout,
 disconnect, or malformed reply costs a fault and is handled by policy:
 substitute the decision family's minimal legal action (check, else fold;
-stand pat at a draw; bring-in at a bring-in decision) and continue, or
-forfeit the match. Fault counts are reported — a bot that "wins" while
-faulting is visibly broken.
+stand pat at a draw; bring-in at a bring-in decision; the deterministic
+filler placement in OFC) and continue, or forfeit the match. Fault counts
+are reported — a bot that "wins" while faulting is visibly broken.
 
 **Bot identity is operator-assigned; bots are anonymous processes.** The
 wire `join` is a bare ready signal — a bot never names itself. Names come
@@ -236,20 +236,32 @@ bring-in = small bet / 2).
 **OFC is a second engine, not a `GameSpec`.** OFC has no blinds, no chips,
 no betting rounds and no pots — forcing it through the betting engine's
 "streets + betting structure + showdown" shape would have bent both. It
-gets its own data-driven spec (`poker_core::ofc`), its own state machine,
-and its own binary (`poker-arena-ofc`), while the betting arena's spec,
-wire bytes and CLI stay frozen. The pieces that *are* shared are shared for
-real, not by analogy: `Card`, `HandValue`, the JSON-lines framing, the
-deck/RNG, `RateStats`, and the byte-stream transport (extracted from
-`WireBot` into `LineTransport<In>` — protocol logic stayed put, proven
-unchanged by the suite plus a byte-identical transcript regeneration).
+gets its own data-driven spec (`poker_core::ofc`) and its own state
+machine, while the betting engine's rules and wire bytes stay frozen. The
+pieces that *are* shared are shared for real, not by analogy: `Card`,
+`HandValue`, the JSON-lines framing, the deck/RNG, `RateStats`, and the
+byte-stream transport (extracted from `WireBot` into `LineTransport<In>` —
+protocol logic stayed put, proven unchanged by the suite plus a
+byte-identical transcript regeneration).
 
 **Modules, not new crates.** `poker_wire::ofc`, `poker_core::ofc`,
-`poker_arena::ofc`, and a second `[[bin]]` in the cli crate. The crate
-boundaries mean "vocabulary / rules / competition / shell", and those
-meanings apply to OFC unchanged; four more crates would have duplicated the
-boundary without adding one. A bot author still depends on `poker-wire`
-alone, whichever protocol they speak.
+`poker_arena::ofc`. The crate boundaries mean "vocabulary / rules /
+competition / shell", and those meanings apply to OFC unchanged; four more
+crates would have duplicated the boundary without adding one. A bot author
+still depends on `poker-wire` alone, whichever protocol they speak.
+
+**One binary.** (Revisited: OFC first shipped as a second binary,
+`poker-arena-ofc`, to leave the existing CLI untouched; the owner then
+chose the greenfield answer and the two were merged.) `poker-arena run
+--game <id>` dispatches on the game id across both registries; `games`
+lists all twenty-four with a family column. The cost is that clap cannot
+scope flags per family, so stakes/dealing flags with an OFC game are
+runtime errors that name the flag; the win is one artifact, one entry
+point, one flag vocabulary (`--log-top` = biggest pots or biggest point
+swings; `--fault-policy substitute|forfeit` for both engines — "substitute"
+was always what check-fold meant). Because one binary now emits two report
+schemas from the same `--output json` flag, both match reports carry a
+`family` discriminator (`"betting"`/`"ofc"`).
 
 **A separate wire protocol, versioned independently.** Same framing, same
 handshake shape, same operator-assigned identity; different messages

@@ -1,7 +1,7 @@
 # poker-arena OFC wire protocol (v1)
 
 This document specifies the wire protocol bots use to play Open Face
-Chinese (OFC) in poker-arena, driven by the `poker-arena-ofc` binary. It is
+Chinese (OFC) in poker-arena (the `poker-arena` binary's OFC games). It is
 a **separate protocol** from the betting protocol in `WIRE_PROTOCOL.md` —
 an OFC hand has no chips, no betting, and no legal-actions surface, only
 placement decisions — but it shares the same transports, the same JSON-lines
@@ -235,14 +235,17 @@ points replacing chips; Rust types in `crates/poker-wire/src/ofc/report.rs`
 ### Match report (`--output json`, stdout, once)
 
 ```json
-{"schema_version":1,"game_id":"ofc","hands":1000,"seed":7,"seat_count":2,
- "timeout_ms":5000,"fault_policy":"substitute","forfeited_by":null,
+{"schema_version":1,"family":"ofc","game_id":"ofc","hands":1000,"seed":7,
+ "seat_count":2,"timeout_ms":5000,"fault_policy":"substitute","forfeited_by":null,
  "bots":[{"name":"greedy","kind":"builtin:greedy","points":412,
    "points_per_hand_mean":0.412,"points_per_hand_ci95":0.53,"hands":1000,
    "fouls":31,"fantasylands":48,"scoops":112,"royalties":690,"faults":0},
   ...]}
 ```
 
+`family` is always `"ofc"` here — the one CLI emits the betting report
+shape (`"family":"betting"`, specified in `WIRE_PROTOCOL.md`) for betting
+games, and this field lets a consumer dispatch between the two schemas.
 Points are the canonical unit (there is nothing to normalize by).
 `points_per_hand_ci95` is the two-sided 95% Student-t half-width of the
 mean, `null` under two observations. `fantasylands` counts hands *played

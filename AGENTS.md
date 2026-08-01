@@ -12,7 +12,7 @@ match results. This file is for AI agents (and humans) making changes.
 | `crates/poker-wire/` | The vocabulary: Card, Action, Event, Stakes, messages, JSON-lines framing. Depends on serde only — a bot client needs this crate alone. `src/ofc/` is the OFC protocol's vocabulary (separate messages/events/reports, versioned independently). |
 | `crates/poker-core/` | Pure rules, no I/O: deck + deterministic RNG, evaluators, `GameSpec` registry (`game/spec.rs`), pot engine, `HandState`. Re-exports wire's vocabulary at its own paths. `src/ofc/` is the OFC engine: `OfcSpec` registry (`ofc/spec.rs`), `Board`, `OfcHandState`, points scoring. |
 | `crates/poker-arena/` | Competition machinery: `Bot` trait, builtins, `WireBot` transports, match runner, stats, hand log. `src/transport.rs` is the generic JSONL peer both wire adapters share; `src/ofc/` mirrors the whole layer for OFC (incl. the `greedy` foul-avoiding builtin). |
-| `crates/poker-arena-cli/` | Two binaries: `poker-arena` (src/main.rs) and `poker-arena-ofc` (src/ofc.rs); shared operator helpers in src/lib.rs. |
+| `crates/poker-arena-cli/` | The one `poker-arena` binary: `run --game <id>` dispatches to the betting or OFC engine by registry lookup; `games` lists both families. |
 | `WIRE_PROTOCOL.md` | The betting bot protocol spec. This doc and `poker-wire` must never drift apart. |
 | `WIRE_PROTOCOL_OFC.md` | The OFC bot protocol spec, same never-drift rule against `poker_wire::ofc`. |
 | `KEY_DECISIONS.md` | Why things are the way they are. **Maintained**: edit the relevant entry whenever you make or revisit a design decision. |
@@ -61,10 +61,11 @@ any rules edit.
   holdem-nl --bot builtin:caller --bot builtin:random --hands 1000`
   (`--seed N` to reproduce; seed is always printed). `poker-arena games`
   lists the registry.
-- **Run an OFC match**: `cargo run --release -p poker-arena-cli --bin
-  poker-arena-ofc -- run --game ofc-pineapple --bot builtin:greedy --bot
+- **Run an OFC match**: same binary — `cargo run --release -p
+  poker-arena-cli -- run --game ofc-pineapple --bot builtin:greedy --bot
   builtin:random --hands 1000`. Same operator model (NAME@spec, seeds,
-  JSON output); points instead of chips; no duplicate mode.
+  JSON output); points instead of chips; no duplicate mode; stakes flags
+  are betting-only.
 - **Add a game variant**: constructor + registry entry in
   `poker-core/src/game/spec.rs` (variants are data — if the engine needs
   new code, stop and reconsider the design, then update the `state.rs`

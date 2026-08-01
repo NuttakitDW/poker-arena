@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""A minimal poker-arena-ofc wire bot in Python (protocol v1, no dependencies).
+"""A minimal poker-arena OFC wire bot in Python (protocol v1, no dependencies).
 
 Reads arena messages from stdin, writes bot messages to stdout — run it with:
 
-    poker-arena-ofc run --game ofc-pineapple \
+    poker-arena run --game ofc-pineapple \
         --bot cmd:"python3 examples/ofc_bot.py" --bot builtin:greedy
 
 Protocol reference: WIRE_PROTOCOL_OFC.md. `hello` carries only game_id plus

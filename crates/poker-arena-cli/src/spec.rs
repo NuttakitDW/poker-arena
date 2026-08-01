@@ -1,13 +1,11 @@
-//! Shared helpers between `poker-arena` and `poker-arena-ofc`.
+//! Operator plumbing shared by both family drivers.
 //!
-//! The two binaries drive different engines with different bot vocabularies
-//! (`builtin:folder|caller|shover|random` vs `builtin:greedy|filler|random`,
-//! different hello messages, different match configs), so each keeps its own
-//! `--bot` spec-kind parser and its own CLI surface entirely. What they share
+//! The two engines have different bot vocabularies (`builtin:folder|caller|
+//! shover|random` vs `builtin:greedy|filler|random`) and different hello
+//! messages, so each driver keeps its own spec-kind parser. What they share
 //! is the mechanics underneath that vocabulary: splitting the optional
 //! `NAME@` prefix off a `--bot` spec, disambiguating duplicate names once the
-//! whole field is known, and generating a fresh match seed when none is
-//! pinned.
+//! whole field is known, and resolving the match seed.
 
 use std::collections::{HashMap, HashSet};
 
@@ -59,9 +57,26 @@ pub fn disambiguate(base_names: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// The match seed, generated when `--seed` didn't pin one, announced on
+/// stderr either way so it is visible regardless of `--output` and a long or
+/// aborted run stays reproducible.
+pub fn resolve_seed(pinned: Option<u64>) -> u64 {
+    match pinned {
+        Some(seed) => {
+            eprintln!("seed: {seed}");
+            seed
+        }
+        None => {
+            let seed = entropy_seed();
+            eprintln!("seed: {seed} (pass --seed {seed} to reproduce this match)");
+            seed
+        }
+    }
+}
+
 /// A fresh seed for runs that didn't pin one: system time and PID stirred
 /// through splitmix64. Match seeding, not cryptography.
-pub fn entropy_seed() -> u64 {
+fn entropy_seed() -> u64 {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)

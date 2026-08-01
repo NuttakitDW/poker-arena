@@ -1,12 +1,19 @@
 # poker-arena wire protocol (v1)
 
-This document specifies the wire protocol bots use to play in poker-arena.
-It is transport- and language-agnostic: anything that can read/write lines
-of JSON over a stream can be a bot. The Rust reference implementation lives
-in `crates/poker-wire` (`message.rs` and `framing.rs` for the envelope,
+This document specifies the wire protocol bots use to play the *betting*
+games (hold'em through drawmaha) in poker-arena. It is transport- and
+language-agnostic: anything that can read/write lines of JSON over a stream
+can be a bot. The Rust reference implementation lives in
+`crates/poker-wire` (`message.rs` and `framing.rs` for the envelope,
 `card.rs` / `action.rs` / `event.rs` / `value.rs` / `game.rs` for the
 payload types); this document and that crate must never drift apart — if you
 change one, change the other.
+
+The Open Face Chinese games speak a **separate protocol** — same
+transports, same framing, same card vocabulary, different messages (no
+chips, no betting, placement decisions instead) — specified in
+[WIRE_PROTOCOL_OFC.md](WIRE_PROTOCOL_OFC.md). A bot speaks exactly one of
+the two; read the spec for the game family you are entering.
 
 `PROTO_VERSION = 1`. **Unknown JSON fields must be ignored by bots, and
 unknown `"t"` (or event `"event"`) values must be skipped/ignored rather
@@ -403,15 +410,16 @@ A **fault** is either an illegal/malformed action or a failure to answer at
 all (timeout or disconnect). What happens next is controlled by the
 arena's configured fault policy, not by the bot:
 
-- **check-fold substitution** (default): the arena substitutes a check (if
-  free) or a fold (otherwise) on the bot's behalf, logs the fault, and the
-  match continues.
+- **substitute** (default): the arena substitutes the decision's minimal
+  legal action on the bot's behalf — a check (if free) or a fold, a stand
+  pat at a draw, the bring-in at a bring-in decision — logs the fault, and
+  the match continues.
 - **forfeit**: the match ends immediately and the offending bot forfeits.
 
 Either way, faults are visible in the arena's reporting — a bot that relies
 on getting away with illegal actions will show up in the fault count even
-under check-fold substitution. Bots should treat every fault as a bug to
-fix, not a recoverable strategy.
+under substitution. Bots should treat every fault as a bug to fix, not a
+recoverable strategy.
 
 ## Match result & progress documents
 
@@ -424,8 +432,13 @@ alone); `schema_version` bumps on any breaking shape change.
 ### Match report (`--output json`, stdout, once)
 
 ```json
-{"schema_version":1,"game_id":"27td-fl","seed":9,"dealing":"duplicate","decks":50,"hands":100,"seat_count":2,"starting_stack":10000,"stakes":{"kind":"blinds","small_blind":50,"big_blind":100,"ante":0},"betting":{"kind":"fixed-limit","raise_cap":4},"fault_policy":"check-fold","timeout_ms":1000,"forfeited_by":null,"bots":[{"name":"random","hands":100,"total_chips":650,"chips_per100_mean":650.0,"chips_per100_ci95":8071.0,"observations":50,"faults":0,"behavior":{"vpip":0.63,"pfr":0.36,"af":1.41,"wtsd":0.11,"wsd":0.47,"fold_rate":0.69}}]}
+{"schema_version":1,"family":"betting","game_id":"27td-fl","seed":9,"dealing":"duplicate","decks":50,"hands":100,"seat_count":2,"starting_stack":10000,"stakes":{"kind":"blinds","small_blind":50,"big_blind":100,"ante":0},"betting":{"kind":"fixed-limit","raise_cap":4},"fault_policy":"substitute","timeout_ms":1000,"forfeited_by":null,"bots":[{"name":"random","hands":100,"total_chips":650,"chips_per100_mean":650.0,"chips_per100_ci95":8071.0,"observations":50,"faults":0,"behavior":{"vpip":0.63,"pfr":0.36,"af":1.41,"wtsd":0.11,"wsd":0.47,"fold_rate":0.69}}]}
 ```
+
+- `family` is always `"betting"` here: the CLI emits a different report
+  shape for Open Face Chinese games (`"family":"ofc"`, specified in
+  `WIRE_PROTOCOL_OFC.md`), and this field lets a consumer dispatch between
+  the two without a registry lookup.
 
 - `chips_per100_mean` / `chips_per100_ci95`: winnings per 100 hands in
   **chips** — the canonical unit; normalize for display using `stakes` and
@@ -456,7 +469,7 @@ each hand (`deck` groups duplicate rotations of the same deck; `seats[s]`
 is the bot at seat `s`) and, once from the CLI, a trailing
 `{"log_summary":{"hands_seen":H,"hands_kept":H}}` line.
 
-`--log-sample N` / `--log-top-pots K` / `--log-faults K` switch `--log`
+`--log-sample N` / `--log-top K` / `--log-faults K` switch `--log`
 into selective mode: only the first N hands (extended to whole decks so a
 duplicate rotation set is never split), the K biggest-pot hands, and the
 first K fault hands (forfeited hands always kept) are written, as a batch

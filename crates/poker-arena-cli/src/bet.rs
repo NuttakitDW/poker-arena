@@ -1,0 +1,427 @@
+//! The betting-game driver: `--bot` vocabulary, match setup and report
+//! tables for the twenty variants of [`poker_core::game`].
+
+use std::fs::File;
+use std::io::BufWriter;
+use std::process::ExitCode;
+use std::time::Duration;
+
+use poker_arena::Bot;
+use poker_arena::builtin::{Caller, Folder, Random, Shover};
+use poker_arena::config::{DealingMode, MatchConfig};
+use poker_arena::log::{EventSink, JsonLog, LogSelection, SelectiveLog};
+use poker_arena::remote::WireBot;
+use poker_arena::runner::{Progress, run_match};
+use poker_core::game::{BettingKind, GameSpec, Stakes};
+use poker_wire::message::ArenaMsg;
+
+use crate::spec::{disambiguate, resolve_seed, split_named_spec};
+use crate::{OutputArg, RunArgs};
+
+/// Defaults for the flags this family owns, applied here rather than in the
+/// clap surface so the surface can tell "not passed" from "passed".
+const DEFAULT_SB: u64 = 50;
+const DEFAULT_BB: u64 = 100;
+const DEFAULT_HANDS: u64 = 10_000;
+const DEFAULT_TIMEOUT_MS: u64 = 1_000;
+const DEFAULT_STACK_BB: u64 = 100;
+
+/// A parsed `--bot` spec. Nothing is named or connected yet: naming happens
+/// once every spec is known (duplicate base names get `-2`, `-3`… suffixes),
+/// and a wire bot's base name only exists after it has joined.
+enum BotSpec {
+    Builtin(BuiltinKind),
+    /// Wait for a bot to connect on `127.0.0.1:PORT`.
+    Tcp(u16),
+    /// Spawn a bot process and talk over its stdio.
+    Cmd(String),
+}
+
+/// A builtin kind.
+enum BuiltinKind {
+    Folder,
+    Caller,
+    Shover,
+    Random(Option<u64>),
+}
+
+impl BuiltinKind {
+    fn base_name(&self) -> &'static str {
+        match self {
+            BuiltinKind::Folder => "folder",
+            BuiltinKind::Caller => "caller",
+            BuiltinKind::Shover => "shover",
+            BuiltinKind::Random(_) => "random",
+        }
+    }
+
+    fn build(self, name: String, bot_index: usize) -> Box<dyn Bot> {
+        match self {
+            BuiltinKind::Folder => Box::new(Folder::new(name)),
+            BuiltinKind::Caller => Box::new(Caller::new(name)),
+            BuiltinKind::Shover => Box::new(Shover::new(name)),
+            BuiltinKind::Random(seed) => {
+                Box::new(Random::new(name, seed.unwrap_or(bot_index as u64)))
+            }
+        }
+    }
+}
+
+/// Parse a `--bot` spec: split the optional `NAME@` prefix (shared with the
+/// OFC driver; see [`split_named_spec`]) and parse the rest as this family's
+/// own spec kind.
+fn parse_named_bot_spec(spec: &str) -> Result<(Option<String>, BotSpec), String> {
+    let (name, rest) = split_named_spec(spec)?;
+    Ok((name, parse_bot_spec(rest)?))
+}
+
+fn parse_bot_spec(spec: &str) -> Result<BotSpec, String> {
+    if let Some(port) = spec.strip_prefix("tcp:") {
+        let port = port
+            .parse::<u16>()
+            .map_err(|_| format!("invalid port {port:?} in --bot {spec:?}"))?;
+        return Ok(BotSpec::Tcp(port));
+    }
+    if let Some(command) = spec.strip_prefix("cmd:") {
+        if command.trim().is_empty() {
+            return Err(format!("empty command in --bot {spec:?}"));
+        }
+        return Ok(BotSpec::Cmd(command.to_string()));
+    }
+    let Some(rest) = spec.strip_prefix("builtin:") else {
+        return Err(format!(
+            "unrecognized --bot spec {spec:?} (expected builtin:<name>, tcp:*, or cmd:*)"
+        ));
+    };
+    let mut parts = rest.splitn(2, ':');
+    let name = parts.next().unwrap_or("");
+    let arg = parts.next();
+    match name {
+        "folder" => Ok(BotSpec::Builtin(BuiltinKind::Folder)),
+        "caller" => Ok(BotSpec::Builtin(BuiltinKind::Caller)),
+        "shover" => Ok(BotSpec::Builtin(BuiltinKind::Shover)),
+        "random" => {
+            let seed = arg
+                .map(|s| {
+                    s.parse::<u64>()
+                        .map_err(|_| format!("invalid seed {s:?} in --bot {spec:?}"))
+                })
+                .transpose()?;
+            Ok(BotSpec::Builtin(BuiltinKind::Random(seed)))
+        }
+        other => Err(format!(
+            "unknown builtin bot {other:?} in --bot {spec:?} (expected folder/caller/shover/random)"
+        )),
+    }
+}
+
+/// A bot that exists but isn't named yet.
+enum Pending {
+    Builtin(BuiltinKind),
+    Wire(WireBot),
+}
+
+/// Connects/spawns every wire bot (sequentially, in `--bot` order, so the
+/// order connections are expected in is predictable) and names the whole
+/// field, disambiguating duplicates with `-2`, `-3`… suffixes.
+///
+/// Names are operator-assigned (`NAME@spec`); bots carry no identity of
+/// their own. Unnamed specs default to the builtin kind, `tcp-PORT`, or
+/// positional `bot-N`.
+fn build_bots(
+    specs: Vec<(Option<String>, BotSpec)>,
+    hello: &ArenaMsg,
+    timeout: Option<Duration>,
+) -> Result<Vec<Box<dyn Bot>>, String> {
+    // A bot that has to be started (or a human that has to start it) deserves
+    // more slack than a single decision does.
+    let handshake = timeout.unwrap_or_default().max(Duration::from_secs(10));
+
+    let mut names = Vec::with_capacity(specs.len());
+    let mut pending = Vec::with_capacity(specs.len());
+    for (i, (name, spec)) in specs.into_iter().enumerate() {
+        let default_name = match &spec {
+            BotSpec::Builtin(kind) => kind.base_name().to_string(),
+            BotSpec::Tcp(port) => format!("tcp-{port}"),
+            BotSpec::Cmd(_) => format!("bot-{}", i + 1),
+        };
+        names.push(name.unwrap_or(default_name));
+        pending.push(match spec {
+            BotSpec::Builtin(kind) => Pending::Builtin(kind),
+            BotSpec::Tcp(port) => {
+                eprintln!("waiting for a bot on 127.0.0.1:{port} ...");
+                let mut bot = WireBot::listen_tcp(port, hello.clone(), handshake)
+                    .map_err(|e| e.to_string())?;
+                bot.set_timeout(timeout);
+                Pending::Wire(bot)
+            }
+            BotSpec::Cmd(command) => {
+                let mut bot = WireBot::spawn_cmd(&command, hello.clone(), handshake)
+                    .map_err(|e| e.to_string())?;
+                bot.set_timeout(timeout);
+                Pending::Wire(bot)
+            }
+        });
+    }
+
+    Ok(pending
+        .into_iter()
+        .zip(disambiguate(&names))
+        .enumerate()
+        .map(|(i, (p, name))| match p {
+            Pending::Builtin(kind) => kind.build(name, i),
+            Pending::Wire(mut bot) => {
+                bot.set_name(name);
+                Box::new(bot) as Box<dyn Bot>
+            }
+        })
+        .collect())
+}
+
+pub fn run(args: RunArgs) -> Result<ExitCode, String> {
+    let big_blind = args.bb.unwrap_or(DEFAULT_BB);
+    let blind_stakes = Stakes::Blinds {
+        small_blind: args.sb.unwrap_or(DEFAULT_SB),
+        big_blind,
+        ante: args.ante.unwrap_or(0),
+    };
+    let unknown = || format!("unknown game {:?} (see `poker-arena games`)", args.game);
+    let mut spec = GameSpec::by_id(&args.game, blind_stakes).ok_or_else(unknown)?;
+
+    let stud_flags_given =
+        args.bring_in.is_some() || args.small_bet.is_some() || args.big_bet.is_some();
+    match spec.stakes {
+        Stakes::Stud { .. } => {
+            // Rebuild with explicit stud numbers layered over the same
+            // derivation `Stakes::to_stud` would have used, so omitted
+            // flags fall back to exactly today's defaults.
+            let default_stud = blind_stakes.to_stud();
+            let Stakes::Stud {
+                ante: default_ante,
+                bring_in: default_bring_in,
+                small_bet: default_small_bet,
+                ..
+            } = default_stud
+            else {
+                unreachable!("to_stud() always returns Stakes::Stud")
+            };
+            let small_bet = args.small_bet.unwrap_or(default_small_bet);
+            let stud_stakes = Stakes::Stud {
+                ante: args.ante.unwrap_or(default_ante),
+                bring_in: args.bring_in.unwrap_or(default_bring_in),
+                small_bet,
+                big_bet: args.big_bet.unwrap_or(small_bet * 2),
+            };
+            spec = GameSpec::by_id(&args.game, stud_stakes).ok_or_else(unknown)?;
+        }
+        Stakes::Blinds { .. } if stud_flags_given => {
+            return Err("--bring-in/--small-bet/--big-bet apply only to stud games".to_string());
+        }
+        Stakes::Blinds { .. } => {}
+    }
+
+    if let Some(n) = args.raise_cap {
+        if !matches!(spec.betting, BettingKind::FixedLimit { .. }) {
+            return Err("--raise-cap applies only to fixed-limit games".to_string());
+        }
+        spec.betting = BettingKind::FixedLimit {
+            raise_cap: (n != 0).then_some(n),
+        };
+    }
+    let stakes = spec.stakes;
+
+    let (seat_min, seat_max) = (*spec.seats.start() as usize, *spec.seats.end() as usize);
+    if args.bots.len() < seat_min || args.bots.len() > seat_max {
+        return Err(format!(
+            "{} --bot entries given, but {} supports {}..={} seats",
+            args.bots.len(),
+            spec.display_name,
+            seat_min,
+            seat_max
+        ));
+    }
+
+    let specs: Vec<(Option<String>, BotSpec)> = args
+        .bots
+        .iter()
+        .map(|s| parse_named_bot_spec(s))
+        .collect::<Result<_, _>>()?;
+
+    let timeout_ms = args.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
+    let timeout = (timeout_ms > 0).then(|| Duration::from_millis(timeout_ms));
+    let starting_stack = args.stack_bb.unwrap_or(DEFAULT_STACK_BB) * big_blind;
+    let hello = ArenaMsg::Hello {
+        proto: poker_wire::PROTO_VERSION,
+        game_id: spec.id.to_string(),
+        stakes,
+        betting: spec.betting,
+        seat_count: args.bots.len(),
+        starting_stack,
+        timeout_ms: timeout.map(|d| d.as_millis() as u64),
+    };
+    let mut bots = build_bots(specs, &hello, timeout)?;
+
+    let seed = resolve_seed(args.seed);
+    let config = MatchConfig {
+        spec,
+        decks: args.hands.unwrap_or(DEFAULT_HANDS),
+        seed,
+        dealing: args.dealing.map_or(DealingMode::Duplicate, Into::into),
+        starting_stack,
+        fault_policy: args.fault_policy.into(),
+        timeout,
+    };
+
+    args.check_log()?;
+    let mut log_sink: Option<Box<dyn EventSink>> = match &args.log {
+        Some(path) => {
+            let file = File::create(path)
+                .map_err(|e| format!("failed to create log file {}: {e}", path.display()))?;
+            let writer = BufWriter::new(file);
+            if args.selective() {
+                let selection = LogSelection {
+                    sample_first_hands: args.log_sample,
+                    top_pots: args.log_top,
+                    fault_hands: args.log_faults.unwrap_or(100),
+                };
+                Some(Box::new(SelectiveLog::new(writer, selection)))
+            } else {
+                Some(Box::new(JsonLog::new(writer)))
+            }
+        }
+        None => None,
+    };
+    let sink: Option<&mut dyn EventSink> = match &mut log_sink {
+        Some(boxed) => Some(boxed.as_mut()),
+        None => None,
+    };
+
+    let cadence_set = args.check_progress()?;
+    let progress_every = args.progress_every;
+    let progress_secs = args.progress_secs;
+    let progress_json = args.progress_json;
+    let mut last_emit = std::time::Instant::now();
+    let mut report_progress = move |p: &Progress<'_>| {
+        let deck_due = progress_every > 0 && p.decks_done.is_multiple_of(progress_every);
+        let time_due = progress_secs > 0.0 && last_emit.elapsed().as_secs_f64() >= progress_secs;
+        if !deck_due && !time_due {
+            return;
+        }
+        last_emit = std::time::Instant::now();
+        if progress_json {
+            let line = poker_arena::progress_report(p);
+            eprintln!(
+                "{}",
+                serde_json::to_string(&line).expect("progress serialization is infallible")
+            );
+        } else {
+            eprintln!("{} decks, {} hands played", p.decks_done, p.hands_done);
+        }
+    };
+    let on_progress: Option<&mut dyn FnMut(&Progress<'_>)> = if cadence_set {
+        Some(&mut report_progress)
+    } else {
+        None
+    };
+
+    let result = run_match(&config, &mut bots, sink, on_progress).map_err(|e| e.to_string())?;
+
+    match args.output {
+        OutputArg::Human => {
+            println!("seed: {seed}");
+            print_report(&config, &result);
+        }
+        OutputArg::Json => {
+            let report = poker_arena::match_report(&config, seed, &result);
+            println!(
+                "{}",
+                serde_json::to_string(&report).expect("report serialization is infallible")
+            );
+        }
+    }
+
+    if let Some(offender) = result.forfeited_by {
+        eprintln!("{} forfeited the match", result.outcomes[offender].name);
+        return Ok(ExitCode::from(2));
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Prints the behavioral profile table: VPIP, PFR, AF, WTSD, WSD, and fold
+/// rate per bot, 3 decimals for rate fields (2 for AF, "inf" when calls are
+/// zero but aggression isn't).
+fn print_behavior_report(result: &poker_arena::MatchResult) {
+    println!();
+    println!(
+        "{:<16} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6}",
+        "bot", "vpip", "pfr", "af", "wtsd", "wsd", "fold"
+    );
+    for o in &result.outcomes {
+        let b = &o.behavior;
+        let af = b.af();
+        let af_field = if af.is_infinite() {
+            "inf".to_string()
+        } else {
+            format!("{af:.2}")
+        };
+        println!(
+            "{:<16} {:>6.3} {:>6.3} {:>6} {:>6.3} {:>6.3} {:>6.3}",
+            o.name,
+            b.vpip(),
+            b.pfr(),
+            af_field,
+            b.wtsd(),
+            b.wsd(),
+            b.fold_rate(),
+        );
+    }
+}
+
+fn print_report(config: &MatchConfig, result: &poker_arena::MatchResult) {
+    // Conventional display units: big bets for fixed limit ("BB/100"),
+    // big blinds for pot/no-limit ("bb/100"). Stats accumulate in chips.
+    let (divisor, label) = config.spec.rate_unit();
+    let divisor = divisor.max(1) as f64;
+    println!(
+        "{:<16} {:>10} {:>14} {:>24} {:>7}",
+        "bot",
+        "hands",
+        "total chips",
+        format!("{label} (±ci95)"),
+        "faults"
+    );
+    for o in &result.outcomes {
+        let mean100 = o.stats.mean() * 100.0 / divisor;
+        let bb_field = match o.stats.ci95_half_width() {
+            Some(h) => format!("{mean100:+.3} ± {:.3}", h * 100.0 / divisor),
+            None => format!("{mean100:+.3} ± n/a"),
+        };
+        println!(
+            "{:<16} {:>10} {:>14} {:>24} {:>7}",
+            o.name, result.hands_played, o.total_net_chips, bb_field, o.faults
+        );
+    }
+
+    print_behavior_report(result);
+
+    if result.forfeited_by.is_none() && result.outcomes.len() == 2 {
+        let leader = if result.outcomes[0].stats.mean() >= result.outcomes[1].stats.mean() {
+            0
+        } else {
+            1
+        };
+        let mean100 = result.outcomes[leader].stats.mean() * 100.0;
+        let significant = result.outcomes[leader]
+            .stats
+            .ci95_half_width()
+            .is_some_and(|h| mean100.abs() > h * 100.0);
+        if significant {
+            println!(
+                "WINNER: {} (statistically significant at 95%)",
+                result.outcomes[leader].name
+            );
+        } else {
+            println!("No statistically significant winner.");
+        }
+    }
+}

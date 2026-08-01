@@ -3,8 +3,8 @@
 A place for poker bots to compete to see which is better — a Rust library and
 CLI supporting multiple poker variants, with statistically sound comparison
 (seeded reproducible dealing, duplicate-deal variance reduction, 95%
-confidence intervals). A second binary, `poker-arena-ofc`, runs Open Face
-Chinese competitions over its own points-based engine and wire protocol.
+confidence intervals) — twenty betting variants and four Open Face Chinese
+variants, one binary.
 
 See [DESIGN.md](DESIGN.md) for the architecture, and
 [KEY_DECISIONS.md](KEY_DECISIONS.md) for the design decisions and the
@@ -57,9 +57,9 @@ carrying the seed, config, and per-bot results; `--progress-json` (cadence via
 streams interim standings as JSON lines
 on stderr — a live leaderboard with tightening confidence intervals — and
 per-hand detail streams separately via `--log` as JSON lines. Selective
-logging (`--log-sample`, `--log-top-pots`, `--log-faults`) keeps
-rotation-set samples, the biggest pots, and fault evidence, written at
-match end.
+logging (`--log-sample`, `--log-top`, `--log-faults`) keeps rotation-set
+samples, the biggest hands (by pot, or by point swing in OFC), and fault
+evidence, written at match end.
 
 ## Out-of-process bots (any language)
 
@@ -82,18 +82,18 @@ no identity of their own and are told their assigned name after joining. Per-act
 enforced server-side (`--timeout-ms`, 0 = none); timeouts, disconnects, and
 malformed replies are faults handled by the configured fault policy.
 
-## Open Face Chinese (`poker-arena-ofc`)
+## Open Face Chinese
 
 OFC is a different kind of poker — no chips, no betting, cards placed into
 a three-row board, hands scored in points pairwise (rows, scoops,
-royalties, fouls) — so it gets its own engine, its own wire protocol
+royalties, fouls) — so it gets its own engine and its own wire protocol
 ([WIRE_PROTOCOL_OFC.md](WIRE_PROTOCOL_OFC.md),
-[examples/ofc_bot.py](examples/ofc_bot.py)), and its own binary with the
-same operator model (`NAME@spec` bots, seeds always printed, JSON reports
-and progress standings, selective hand logs):
+[examples/ofc_bot.py](examples/ofc_bot.py)), behind the same binary and
+operator model (`NAME@spec` bots, seeds always printed, JSON reports and
+progress standings, selective hand logs):
 
 ```sh
-cargo run --release -p poker-arena-cli --bin poker-arena-ofc -- run \
+cargo run --release -p poker-arena-cli -- run \
   --game ofc-pineapple \
   --bot builtin:greedy --bot builtin:random \
   --hands 10000 --seed 42

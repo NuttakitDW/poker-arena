@@ -142,8 +142,10 @@ gains an `ofc` module with the same meaning its crate already had:
   fantasyland carry across per-hand seat rotation, substitute/forfeit
   fault policies, points statistics), JSON + selective hand logs, report
   builders.
-- `poker-arena-cli` — a second binary, `poker-arena-ofc`, sharing the
-  operator conventions (`NAME@spec`, seed printing, name disambiguation).
+- `poker-arena-cli` — the one `poker-arena` binary runs both families:
+  `run --game <id>` dispatches on the game id across the two registries
+  (stakes/dealing flags are runtime errors for OFC games), and `games`
+  lists all twenty-four variants.
 
 There is no duplicate-dealing mode for OFC: fantasyland state carried
 between hands makes deck reuse incoherent, so fairness comes from per-hand
