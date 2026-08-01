@@ -25,7 +25,7 @@ fn config(spec: GameSpec, decks: u64, seed: u64, dealing: DealingMode) -> MatchC
         seed,
         dealing,
         starting_stack: 100 * STAKES.blinds().1,
-        fault_policy: FaultPolicy::CheckFold,
+        fault_policy: FaultPolicy::Substitute,
         timeout: Some(Duration::from_secs(1)),
     }
 }

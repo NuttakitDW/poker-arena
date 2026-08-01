@@ -10,7 +10,8 @@ pub use poker_wire::ofc::report::{
     OFC_REPORT_SCHEMA_VERSION, OfcBotReport, OfcMatchReport, OfcProgressReport, OfcStanding,
 };
 
-use crate::ofc::runner::{OfcFaultPolicy, OfcMatchConfig, OfcMatchResult, OfcProgress};
+use crate::config::FaultPolicy;
+use crate::ofc::runner::{OfcMatchConfig, OfcMatchResult, OfcProgress};
 
 /// Build the final report for a completed match.
 ///
@@ -26,14 +27,15 @@ pub fn ofc_match_report(
 ) -> OfcMatchReport {
     OfcMatchReport {
         schema_version: OFC_REPORT_SCHEMA_VERSION,
+        family: "ofc".to_string(),
         game_id: config.spec.id.to_string(),
         hands: result.hands_played,
         seed,
         seat_count: result.outcomes.len(),
         timeout_ms: config.timeout.map(|d| d.as_millis() as u64),
         fault_policy: match config.fault_policy {
-            OfcFaultPolicy::Substitute => "substitute",
-            OfcFaultPolicy::Forfeit => "forfeit",
+            FaultPolicy::Substitute => "substitute",
+            FaultPolicy::Forfeit => "forfeit",
         }
         .to_string(),
         forfeited_by: result
@@ -93,7 +95,7 @@ mod tests {
             spec: OFC_PROGRESSIVE,
             hands: 40,
             seed: 5,
-            fault_policy: OfcFaultPolicy::Substitute,
+            fault_policy: FaultPolicy::Substitute,
             timeout: None,
         };
         let mut bots: Vec<Box<dyn OfcBot>> = vec![
@@ -106,6 +108,7 @@ mod tests {
 
         let json = serde_json::to_value(&report).unwrap();
         assert_eq!(json["schema_version"], 1);
+        assert_eq!(json["family"], "ofc");
         assert_eq!(json["game_id"], "ofc-progressive");
         assert_eq!(json["seed"], 5);
         assert_eq!(json["hands"], 40);
@@ -134,7 +137,7 @@ mod tests {
             spec: OFC_PROGRESSIVE,
             hands: 6,
             seed: 9,
-            fault_policy: OfcFaultPolicy::Substitute,
+            fault_policy: FaultPolicy::Substitute,
             timeout: None,
         };
         let mut bots: Vec<Box<dyn OfcBot>> = vec![

@@ -15,22 +15,11 @@ use poker_core::card::Deck;
 use poker_core::ofc::{Board, OfcError, OfcEvent, OfcHandState, OfcSpec};
 use poker_core::rng::Rng64;
 
+use crate::config::FaultPolicy;
 use crate::ofc::bot::{OfcActionRequest, OfcBot, OfcHandEnd, OfcHandStart};
 use crate::ofc::builtin::filler_action;
 use crate::ofc::log::{OfcEventSink, OfcHandMeta};
 use crate::stat::RateStats;
-
-/// What happens when a bot misbehaves (illegal placement, timeout,
-/// disconnect, crash, protocol garbage).
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum OfcFaultPolicy {
-    /// Substitute the deterministic filler placement (lowest cards first,
-    /// lowest rows first — the rule the OFC contract names) and continue the
-    /// match. Faults are counted and reported.
-    Substitute,
-    /// End the match immediately; the offender forfeits.
-    Forfeit,
-}
 
 /// Full description of one OFC match.
 #[derive(Clone, Debug)]
@@ -40,14 +29,14 @@ pub struct OfcMatchConfig {
     /// how many hands there are.
     pub hands: u64,
     pub seed: u64,
-    pub fault_policy: OfcFaultPolicy,
+    pub fault_policy: FaultPolicy,
     /// Per-action deadline. Enforced as a hard deadline for wire bots;
     /// in-process bots run without deadline enforcement.
     pub timeout: Option<Duration>,
 }
 
 /// Errors that prevent a match from running at all (as opposed to in-hand
-/// bot misbehavior, which is handled by [`OfcFaultPolicy`]).
+/// bot misbehavior, which is handled by [`FaultPolicy`]).
 #[derive(Debug, thiserror::Error)]
 pub enum OfcMatchError {
     #[error("{bots} bots given, but {game} supports {min}..={max} seats")]
@@ -140,8 +129,8 @@ pub struct OfcStanding {
 /// while every `sink` receives the unredacted stream. A placement rejected by
 /// `apply`, and a bot that fails to answer at all, are the same thing: a
 /// fault, counted against that bot and handled per `config.fault_policy` —
-/// [`OfcFaultPolicy::Substitute`] plays the contract's filler placement and
-/// the match continues, [`OfcFaultPolicy::Forfeit`] ends the match
+/// [`FaultPolicy::Substitute`] plays the contract's filler placement and
+/// the match continues, [`FaultPolicy::Forfeit`] ends the match
 /// immediately.
 ///
 /// Each bot's [`RateStats`] takes one observation per hand: its net points.
@@ -359,14 +348,14 @@ fn play_hand(
                     faulted_seats.push(seat);
                 }
                 match config.fault_policy {
-                    OfcFaultPolicy::Substitute => {
+                    FaultPolicy::Substitute => {
                         let board = state.boards()[seat].clone();
                         let substitute = filler_action(&request.dealt, request.place, &board);
                         state
                             .apply(&substitute)
                             .expect("the filler placement is legal by construction")
                     }
-                    OfcFaultPolicy::Forfeit => {
+                    FaultPolicy::Forfeit => {
                         // The evidence hand is closed out even though it
                         // never settled: a buffered sink needs the boundary
                         // to decide whether to keep it.
@@ -469,7 +458,7 @@ mod tests {
     use crate::ofc::builtin::{OfcFiller, OfcGreedy, OfcRandom};
     use poker_core::ofc::{OFC, OFC_PINEAPPLE};
 
-    fn config(spec: OfcSpec, hands: u64, seed: u64, policy: OfcFaultPolicy) -> OfcMatchConfig {
+    fn config(spec: OfcSpec, hands: u64, seed: u64, policy: FaultPolicy) -> OfcMatchConfig {
         OfcMatchConfig {
             spec,
             hands,
@@ -503,7 +492,7 @@ mod tests {
             Box::new(OfcFiller::new("filler")),
         ];
         let result = run_ofc_match(
-            &config(OFC, hands, 11, OfcFaultPolicy::Substitute),
+            &config(OFC, hands, 11, FaultPolicy::Substitute),
             &mut bots,
             &mut [],
             None,
@@ -520,7 +509,7 @@ mod tests {
         let mut bots: Vec<Box<dyn OfcBot>> = vec![Box::new(OfcFiller::new("solo"))];
         assert!(matches!(
             run_ofc_match(
-                &config(OFC, 5, 1, OfcFaultPolicy::Substitute),
+                &config(OFC, 5, 1, FaultPolicy::Substitute),
                 &mut bots,
                 &mut [],
                 None
@@ -535,7 +524,7 @@ mod tests {
             vec![Box::new(OfcFiller::new("a")), Box::new(OfcFiller::new("b"))];
         assert!(matches!(
             run_ofc_match(
-                &config(OFC_PINEAPPLE, 0, 1, OfcFaultPolicy::Substitute),
+                &config(OFC_PINEAPPLE, 0, 1, FaultPolicy::Substitute),
                 &mut bots,
                 &mut [],
                 None
@@ -561,7 +550,7 @@ mod tests {
             ));
         };
         run_ofc_match(
-            &config(OFC_PINEAPPLE, hands, 5, OfcFaultPolicy::Substitute),
+            &config(OFC_PINEAPPLE, hands, 5, FaultPolicy::Substitute),
             &mut bots,
             &mut [],
             Some(&mut callback),

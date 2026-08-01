@@ -14,10 +14,11 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
+use poker_arena::config::FaultPolicy;
 use poker_arena::ofc::{
-    OfcBot, OfcEventSink, OfcFaultPolicy, OfcFiller, OfcGreedy, OfcJsonLog, OfcLogSelection,
-    OfcMatchConfig, OfcMatchResult, OfcProgress, OfcRandom, OfcSelectiveLog, OfcWireBot,
-    ofc_match_report, ofc_progress_report, run_ofc_match,
+    OfcBot, OfcEventSink, OfcFiller, OfcGreedy, OfcJsonLog, OfcLogSelection, OfcMatchConfig,
+    OfcMatchResult, OfcProgress, OfcRandom, OfcSelectiveLog, OfcWireBot, ofc_match_report,
+    ofc_progress_report, run_ofc_match,
 };
 use poker_core::ofc::{MiddleKind, OfcArenaMsg, OfcSpec, PROTO_VERSION, find, registry};
 
@@ -158,11 +159,11 @@ enum FaultPolicyArg {
     Forfeit,
 }
 
-impl From<FaultPolicyArg> for OfcFaultPolicy {
+impl From<FaultPolicyArg> for FaultPolicy {
     fn from(a: FaultPolicyArg) -> Self {
         match a {
-            FaultPolicyArg::Substitute => OfcFaultPolicy::Substitute,
-            FaultPolicyArg::Forfeit => OfcFaultPolicy::Forfeit,
+            FaultPolicyArg::Substitute => FaultPolicy::Substitute,
+            FaultPolicyArg::Forfeit => FaultPolicy::Forfeit,
         }
     }
 }

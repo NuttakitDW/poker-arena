@@ -10,18 +10,19 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use poker_arena::bot::BotFault;
+use poker_arena::config::FaultPolicy;
 use poker_arena::ofc::bot::{OfcActionRequest, OfcBot};
 use poker_arena::ofc::builtin::{OfcFiller, OfcGreedy, OfcRandom};
 use poker_arena::ofc::log::{OfcEventSink, OfcHandMeta, OfcJsonLog};
 use poker_arena::ofc::remote::OfcWireBot;
-use poker_arena::ofc::runner::{OfcFaultPolicy, OfcMatchConfig, OfcMatchResult, run_ofc_match};
+use poker_arena::ofc::runner::{OfcMatchConfig, OfcMatchResult, run_ofc_match};
 use poker_core::card::Card;
 use poker_core::ofc::{
     Board, OfcAction, OfcArenaMsg, OfcBotMsg, OfcEvent, OfcSpec, Placement, Row, registry,
 };
 use poker_wire::framing::{read_msg, write_msg};
 
-fn config(spec: OfcSpec, hands: u64, seed: u64, policy: OfcFaultPolicy) -> OfcMatchConfig {
+fn config(spec: OfcSpec, hands: u64, seed: u64, policy: FaultPolicy) -> OfcMatchConfig {
     OfcMatchConfig {
         spec,
         hands,
@@ -53,7 +54,7 @@ fn every_variant_plays_a_clean_match() {
         let hands = 60;
         let mut bots = field(spec, seats);
         let result = run_ofc_match(
-            &config(*spec, hands, 17, OfcFaultPolicy::Substitute),
+            &config(*spec, hands, 17, FaultPolicy::Substitute),
             &mut bots,
             &mut [],
             None,
@@ -96,7 +97,7 @@ fn the_same_seed_reproduces_the_match_and_its_log_bytes() {
             let mut sinks: Vec<&mut dyn OfcEventSink> = vec![&mut log];
             let mut bots = field(&spec, 3);
             run_ofc_match(
-                &config(spec, 40, 2024, OfcFaultPolicy::Substitute),
+                &config(spec, 40, 2024, FaultPolicy::Substitute),
                 &mut bots,
                 &mut sinks,
                 None,
@@ -193,7 +194,7 @@ fn a_bot_granted_fantasyland_plays_the_next_hand_in_it() {
         let mut sinks: Vec<&mut dyn OfcEventSink> = vec![&mut probe];
         let mut bots = field(&spec, 3);
         run_ofc_match(
-            &config(spec, 150, 4242, OfcFaultPolicy::Substitute),
+            &config(spec, 150, 4242, FaultPolicy::Substitute),
             &mut bots,
             &mut sinks,
             None,
@@ -258,7 +259,7 @@ fn greedy_fouls_rarely_and_beats_random_over_three_hundred_hands() {
             Box::new(OfcRandom::new("random", 1)),
         ];
         run_ofc_match(
-            &config(spec, hands, 31337, OfcFaultPolicy::Substitute),
+            &config(spec, hands, 31337, FaultPolicy::Substitute),
             &mut bots,
             &mut sinks,
             None,
@@ -329,7 +330,7 @@ fn substitution_keeps_a_faulting_match_running_and_zero_sum() {
             Box::new(OfcGreedy::new("greedy", spec.middle)),
         ];
         run_ofc_match(
-            &config(spec, hands, 8, OfcFaultPolicy::Substitute),
+            &config(spec, hands, 8, FaultPolicy::Substitute),
             &mut bots,
             &mut sinks,
             None,
@@ -357,7 +358,7 @@ fn forfeit_policy_ends_the_match_at_the_first_fault() {
         }),
     ];
     let result = run_ofc_match(
-        &config(spec, 20, 8, OfcFaultPolicy::Forfeit),
+        &config(spec, 20, 8, FaultPolicy::Forfeit),
         &mut bots,
         &mut [],
         None,
@@ -742,7 +743,7 @@ fn wire_bot_plays_a_full_match_over_a_socket() {
         Box::new(OfcGreedy::new("greedy", spec.middle)),
     ];
     let result = run_ofc_match(
-        &config(spec, hands, 77, OfcFaultPolicy::Substitute),
+        &config(spec, hands, 77, FaultPolicy::Substitute),
         &mut bots,
         &mut [],
         None,
@@ -796,7 +797,7 @@ fn wire_placer_reference_bot_plays_a_clean_match_via_subprocess() {
         Box::new(OfcGreedy::new("greedy", spec.middle)),
     ];
     let result = run_ofc_match(
-        &config(spec, hands, 99, OfcFaultPolicy::Substitute),
+        &config(spec, hands, 99, FaultPolicy::Substitute),
         &mut bots,
         &mut [],
         None,
@@ -839,7 +840,7 @@ fn python_reference_bot_plays_a_clean_match_via_subprocess() {
         Box::new(OfcGreedy::new("greedy", spec.middle)),
     ];
     let result = run_ofc_match(
-        &config(spec, hands, 100, OfcFaultPolicy::Substitute),
+        &config(spec, hands, 100, FaultPolicy::Substitute),
         &mut bots,
         &mut [],
         None,

@@ -42,7 +42,7 @@ fn nl_config(decks: u64) -> MatchConfig {
         seed: 42,
         dealing: DealingMode::Duplicate,
         starting_stack: 100 * 100,
-        fault_policy: FaultPolicy::CheckFold,
+        fault_policy: FaultPolicy::Substitute,
         timeout: None,
     }
 }

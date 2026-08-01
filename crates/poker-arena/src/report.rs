@@ -16,6 +16,7 @@ use crate::runner::{MatchResult, Progress};
 pub fn match_report(config: &MatchConfig, seed: u64, result: &MatchResult) -> MatchReport {
     MatchReport {
         schema_version: REPORT_SCHEMA_VERSION,
+        family: "betting".to_string(),
         game_id: config.spec.id.to_string(),
         seed,
         dealing: match config.dealing {
@@ -30,7 +31,7 @@ pub fn match_report(config: &MatchConfig, seed: u64, result: &MatchResult) -> Ma
         stakes: config.spec.stakes,
         betting: config.spec.betting,
         fault_policy: match config.fault_policy {
-            FaultPolicy::CheckFold => "check-fold",
+            FaultPolicy::Substitute => "substitute",
             FaultPolicy::Forfeit => "forfeit",
         }
         .to_string(),
@@ -105,7 +106,7 @@ mod tests {
             seed: 5,
             dealing: DealingMode::Duplicate,
             starting_stack: 10_000,
-            fault_policy: FaultPolicy::CheckFold,
+            fault_policy: FaultPolicy::Substitute,
             timeout: None,
         };
         let mut bots: Vec<Box<dyn Bot>> = vec![
@@ -117,6 +118,7 @@ mod tests {
 
         let json = serde_json::to_value(&report).unwrap();
         assert_eq!(json["schema_version"], 1);
+        assert_eq!(json["family"], "betting");
         assert_eq!(json["game_id"], "holdem-nl");
         assert_eq!(json["seed"], 5);
         assert_eq!(json["dealing"], "duplicate");

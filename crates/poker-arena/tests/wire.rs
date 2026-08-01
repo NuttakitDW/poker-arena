@@ -279,7 +279,7 @@ fn assert_clean_heads_up(result: &MatchResult, decks: u64) {
 fn subprocess_end_to_end_match() {
     let decks = 30;
     let run = || {
-        let config = nl_config(decks, Some(Duration::from_secs(5)), FaultPolicy::CheckFold);
+        let config = nl_config(decks, Some(Duration::from_secs(5)), FaultPolicy::Substitute);
         let mut wire = WireBot::spawn_cmd(
             env!("CARGO_BIN_EXE_wire-caller"),
             hello(Some(5_000)),
@@ -318,7 +318,7 @@ fn tcp_end_to_end_match() {
         .spawn()
         .expect("spawn wire-caller");
 
-    let config = nl_config(decks, Some(Duration::from_secs(5)), FaultPolicy::CheckFold);
+    let config = nl_config(decks, Some(Duration::from_secs(5)), FaultPolicy::Substitute);
     let mut wire = WireBot::listen_tcp_on(listener, hello(Some(5_000)), Duration::from_secs(10))
         .expect("handshake over tcp");
     wire.set_name("tcp-caller");

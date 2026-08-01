@@ -30,6 +30,6 @@ pub use log::{OfcEventSink, OfcHandMeta, OfcJsonLog, OfcLogSelection, OfcSelecti
 pub use remote::OfcWireBot;
 pub use report::{ofc_match_report, ofc_progress_report};
 pub use runner::{
-    OfcBotOutcome, OfcFaultPolicy, OfcMatchConfig, OfcMatchError, OfcMatchResult, OfcProgress,
-    OfcStanding, run_ofc_match,
+    OfcBotOutcome, OfcMatchConfig, OfcMatchError, OfcMatchResult, OfcProgress, OfcStanding,
+    run_ofc_match,
 };

@@ -20,13 +20,15 @@ pub enum DealingMode {
     Duplicate,
 }
 
-/// What happens when a bot misbehaves (illegal action, timeout, disconnect,
-/// crash, protocol garbage).
+/// What happens when a bot misbehaves (illegal action/placement, timeout,
+/// disconnect, crash, protocol garbage). Shared by both engines.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum FaultPolicy {
-    /// Substitute a check if free, else fold; continue the match. Faults are
-    /// counted and reported.
-    CheckFold,
+    /// Substitute the decision's minimal legal action — check/fold, stand
+    /// pat, post the bring-in for betting games; the deterministic filler
+    /// placement for OFC — and continue the match. Faults are counted and
+    /// reported.
+    Substitute,
     /// End the match immediately; the offender forfeits.
     Forfeit,
 }

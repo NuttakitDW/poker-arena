@@ -115,7 +115,7 @@ pub struct MatchResult {
 /// `apply` in a loop; bots receive seat-redacted events, the optional `sink`
 /// receives the unredacted stream. A bot action rejected by `apply` costs
 /// that bot a fault and is handled per `config.fault_policy`:
-/// [`FaultPolicy::CheckFold`] substitutes a check (if free) or a fold, and
+/// [`FaultPolicy::Substitute`] substitutes a check (if free) or a fold, and
 /// the match continues; [`FaultPolicy::Forfeit`] ends the match immediately.
 ///
 /// Observations pushed to each bot's [`RateStats`] are in big blinds *per
@@ -398,7 +398,7 @@ fn play_hand(
                 faults[bot] += 1;
                 hand_faulted = true;
                 match config.fault_policy {
-                    FaultPolicy::CheckFold => {
+                    FaultPolicy::Substitute => {
                         // The minimal legal action for the decision family in
                         // play: draw phases only accept a discard (stand pat),
                         // a bring-in decision only accepts bring-in/complete,
@@ -529,7 +529,7 @@ mod tests {
     #[test]
     fn identical_configs_produce_identical_outcomes() {
         let run = || {
-            let config = nl_config(50, 99, DealingMode::Duplicate, FaultPolicy::CheckFold);
+            let config = nl_config(50, 99, DealingMode::Duplicate, FaultPolicy::Substitute);
             let mut bots = boxed(vec![
                 Box::new(Caller::new("caller")),
                 Box::new(Random::new("random", 7)),
@@ -557,7 +557,7 @@ mod tests {
     #[test]
     fn duplicate_heads_up_observation_math() {
         let decks = 25;
-        let config = nl_config(decks, 3, DealingMode::Duplicate, FaultPolicy::CheckFold);
+        let config = nl_config(decks, 3, DealingMode::Duplicate, FaultPolicy::Substitute);
         let mut bots = boxed(vec![
             Box::new(Caller::new("caller")),
             Box::new(Shover::new("shover")),
@@ -582,7 +582,7 @@ mod tests {
         let dealings = [DealingMode::Seeded, DealingMode::Duplicate];
         for dealing in dealings {
             for n in [3, 4] {
-                let config = nl_config(30, 11, dealing, FaultPolicy::CheckFold);
+                let config = nl_config(30, 11, dealing, FaultPolicy::Substitute);
                 let mut bots: Vec<Box<dyn Bot>> = vec![
                     Box::new(Folder::new("folder")),
                     Box::new(Caller::new("caller")),
@@ -617,8 +617,8 @@ mod tests {
     }
 
     #[test]
-    fn check_fold_policy_faults_every_decision_and_stays_zero_sum() {
-        let config = nl_config(20, 21, DealingMode::Seeded, FaultPolicy::CheckFold);
+    fn substitute_policy_faults_every_decision_and_stays_zero_sum() {
+        let config = nl_config(20, 21, DealingMode::Seeded, FaultPolicy::Substitute);
         let mut bots: Vec<Box<dyn Bot>> = vec![
             Box::new(AlwaysIllegal {
                 name: "illegal".into(),
@@ -684,7 +684,7 @@ mod tests {
     fn seeded_seating_covers_every_seat_and_is_not_purely_cyclic() {
         let seats_seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let decks = 24;
-        let config = nl_config(decks, 0, DealingMode::Seeded, FaultPolicy::CheckFold);
+        let config = nl_config(decks, 0, DealingMode::Seeded, FaultPolicy::Substitute);
         let mut bots: Vec<Box<dyn Bot>> = vec![
             Box::new(SeatProbe {
                 name: "probe".into(),
@@ -721,7 +721,7 @@ mod tests {
         // simply calls it — neither bot ever bets, so every hand checks down
         // once blinds are matched.
         let decks = 5;
-        let config = nl_config(decks, 42, DealingMode::Duplicate, FaultPolicy::CheckFold);
+        let config = nl_config(decks, 42, DealingMode::Duplicate, FaultPolicy::Substitute);
         let mut bots: Vec<Box<dyn Bot>> = vec![
             Box::new(Caller::new("caller")),
             Box::new(Folder::new("folder")),
@@ -754,7 +754,7 @@ mod tests {
 
     #[test]
     fn rejects_bot_count_outside_seat_range() {
-        let config = nl_config(1, 1, DealingMode::Seeded, FaultPolicy::CheckFold);
+        let config = nl_config(1, 1, DealingMode::Seeded, FaultPolicy::Substitute);
         let mut bots: Vec<Box<dyn Bot>> = vec![Box::new(Caller::new("solo"))];
         assert!(matches!(
             run_match(&config, &mut bots, None, None),
@@ -764,7 +764,7 @@ mod tests {
 
     #[test]
     fn rejects_empty_match() {
-        let config = nl_config(0, 1, DealingMode::Seeded, FaultPolicy::CheckFold);
+        let config = nl_config(0, 1, DealingMode::Seeded, FaultPolicy::Substitute);
         let mut bots: Vec<Box<dyn Bot>> =
             vec![Box::new(Caller::new("a")), Box::new(Caller::new("b"))];
         assert!(matches!(
@@ -786,7 +786,7 @@ mod tests {
     /// that family's minimal legal action (bring-in / stand pat), never
     /// panic the arena: check and fold are both illegal at those decisions.
     #[test]
-    fn check_fold_policy_survives_bring_in_and_draw_decisions() {
+    fn substitute_policy_survives_bring_in_and_draw_decisions() {
         for id in ["stud-fl", "27td-fl"] {
             let spec = GameSpec::by_id(
                 id,
@@ -803,7 +803,7 @@ mod tests {
                 seed: 3,
                 dealing: DealingMode::Seeded,
                 starting_stack: 10_000,
-                fault_policy: FaultPolicy::CheckFold,
+                fault_policy: FaultPolicy::Substitute,
                 timeout: None,
             };
             let mut bots: Vec<Box<dyn Bot>> = vec![
@@ -825,7 +825,7 @@ mod tests {
     /// mode, and stable bot ordering.
     #[test]
     fn progress_standings_are_consistent_at_every_tick() {
-        let config = nl_config(8, 11, DealingMode::Duplicate, FaultPolicy::CheckFold);
+        let config = nl_config(8, 11, DealingMode::Duplicate, FaultPolicy::Substitute);
         let mut bots: Vec<Box<dyn Bot>> = vec![
             Box::new(Caller::new("caller")),
             Box::new(Random::new("random", 2)),
@@ -900,7 +900,7 @@ mod tests {
 
     #[test]
     fn full_log_headers_rotate_seats_and_summary_matches() {
-        let config = nl_config(4, 5, DealingMode::Duplicate, FaultPolicy::CheckFold);
+        let config = nl_config(4, 5, DealingMode::Duplicate, FaultPolicy::Substitute);
         let mut bots: Vec<Box<dyn Bot>> = vec![
             Box::new(Caller::new("caller")),
             Box::new(Random::new("random", 3)),
@@ -933,7 +933,7 @@ mod tests {
 
     #[test]
     fn selective_sample_keeps_every_nth_deck_with_all_rotations() {
-        let config = nl_config(10, 5, DealingMode::Duplicate, FaultPolicy::CheckFold);
+        let config = nl_config(10, 5, DealingMode::Duplicate, FaultPolicy::Substitute);
         let mut bots: Vec<Box<dyn Bot>> = vec![
             Box::new(Caller::new("caller")),
             Box::new(Random::new("random", 3)),
@@ -979,7 +979,7 @@ mod tests {
     fn selective_top_pots_keeps_the_verifiably_largest_k() {
         // Random introduces genuine per-hand pot-size variety (fold small,
         // raise big) on top of Shover/Caller's all-in pressure.
-        let config = nl_config(40, 17, DealingMode::Seeded, FaultPolicy::CheckFold);
+        let config = nl_config(40, 17, DealingMode::Seeded, FaultPolicy::Substitute);
         let make_bots = || -> Vec<Box<dyn Bot>> {
             vec![
                 Box::new(Shover::new("shover")),
@@ -1035,7 +1035,7 @@ mod tests {
     fn selective_sample_and_top_pot_union_tags_both_reasons() {
         // sample_every_decks(1) keeps every hand, guaranteeing every top-pot
         // hand also carries "sample" — the union case.
-        let config = nl_config(20, 4, DealingMode::Seeded, FaultPolicy::CheckFold);
+        let config = nl_config(20, 4, DealingMode::Seeded, FaultPolicy::Substitute);
         let mut bots: Vec<Box<dyn Bot>> = vec![
             Box::new(Shover::new("shover")),
             Box::new(Random::new("random", 2)),
@@ -1070,7 +1070,7 @@ mod tests {
 
     #[test]
     fn selective_fault_cap_and_forfeit_always_kept() {
-        let config = nl_config(10, 21, DealingMode::Seeded, FaultPolicy::CheckFold);
+        let config = nl_config(10, 21, DealingMode::Seeded, FaultPolicy::Substitute);
         let mut bots: Vec<Box<dyn Bot>> = vec![
             Box::new(AlwaysIllegal {
                 name: "illegal".into(),

@@ -21,6 +21,10 @@ pub const OFC_REPORT_SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OfcMatchReport {
     pub schema_version: u32,
+    /// Always `"ofc"` for this shape; lets a consumer dispatch between the
+    /// two report schemas ([`OfcMatchReport`] and [`crate::report::MatchReport`])
+    /// without a registry lookup.
+    pub family: String,
     pub game_id: String,
     pub hands: u64,
     /// The seed that reproduces this match exactly.
@@ -84,6 +88,7 @@ mod tests {
     fn sample_match_report() -> OfcMatchReport {
         OfcMatchReport {
             schema_version: OFC_REPORT_SCHEMA_VERSION,
+            family: "ofc".into(),
             game_id: "ofc-pineapple".into(),
             hands: 100,
             seed: 9,

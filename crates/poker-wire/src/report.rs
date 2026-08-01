@@ -19,6 +19,10 @@ pub const REPORT_SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MatchReport {
     pub schema_version: u32,
+    /// Always `"betting"` for this shape; lets a consumer dispatch between
+    /// the two report schemas ([`MatchReport`] and
+    /// [`crate::ofc::report::OfcMatchReport`]) without a registry lookup.
+    pub family: String,
     pub game_id: String,
     /// The seed that reproduces this match exactly.
     pub seed: u64,
@@ -98,6 +102,7 @@ mod tests {
     fn reports_round_trip_through_json() {
         let report = MatchReport {
             schema_version: REPORT_SCHEMA_VERSION,
+            family: "betting".into(),
             game_id: "27td-fl".into(),
             seed: 9,
             dealing: "duplicate".into(),
@@ -111,7 +116,7 @@ mod tests {
                 ante: 0,
             },
             betting: BettingKind::FixedLimit { raise_cap: Some(4) },
-            fault_policy: "check-fold".into(),
+            fault_policy: "substitute".into(),
             timeout_ms: Some(1_000),
             forfeited_by: None,
             bots: vec![BotReport {

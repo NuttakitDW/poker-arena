@@ -110,7 +110,7 @@ struct RunArgs {
     stack_bb: u64,
 
     /// What happens when a bot returns a non-conforming action.
-    #[arg(long, value_enum, default_value = "check-fold")]
+    #[arg(long, value_enum, default_value = "substitute")]
     fault_policy: FaultPolicyArg,
 
     /// Per-action deadline in milliseconds (0 = no deadline). Enforced as a
@@ -204,14 +204,14 @@ enum OutputArg {
 #[derive(Copy, Clone, ValueEnum)]
 #[value(rename_all = "kebab-case")]
 enum FaultPolicyArg {
-    CheckFold,
+    Substitute,
     Forfeit,
 }
 
 impl From<FaultPolicyArg> for FaultPolicy {
     fn from(a: FaultPolicyArg) -> Self {
         match a {
-            FaultPolicyArg::CheckFold => FaultPolicy::CheckFold,
+            FaultPolicyArg::Substitute => FaultPolicy::Substitute,
             FaultPolicyArg::Forfeit => FaultPolicy::Forfeit,
         }
     }
