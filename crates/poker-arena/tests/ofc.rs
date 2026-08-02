@@ -858,3 +858,63 @@ fn python_reference_bot_plays_a_clean_match_via_subprocess() {
         0
     );
 }
+
+/// Per hand: the seat→bot-name map and whether any seat was in fantasyland.
+#[derive(Default)]
+struct SeatFreezeProbe {
+    hands: Vec<(Vec<String>, bool)>,
+}
+
+impl OfcEventSink for SeatFreezeProbe {
+    fn hand_start(&mut self, _hand_no: u64, seats: &[String]) {
+        self.hands.push((seats.to_vec(), false));
+    }
+
+    fn event(&mut self, ev: &OfcEvent) {
+        if matches!(ev, OfcEvent::Fantasyland { .. }) {
+            self.hands.last_mut().expect("a hand is open").1 = true;
+        }
+    }
+
+    fn hand_end(&mut self, _meta: &OfcHandMeta) {}
+}
+
+#[test]
+fn seat_rotation_freezes_through_fantasyland_hands_and_resumes_after() {
+    let spec = poker_core::ofc::OFC_PROGRESSIVE;
+    let mut probe = SeatFreezeProbe::default();
+    {
+        let mut sinks: Vec<&mut dyn OfcEventSink> = vec![&mut probe];
+        let mut bots = field(&spec, 3);
+        run_ofc_match(
+            &config(spec, 200, 4242, FaultPolicy::Substitute),
+            &mut bots,
+            &mut sinks,
+            None,
+        )
+        .unwrap();
+    }
+
+    let fantasyland_hands = probe.hands.iter().filter(|(_, fl)| *fl).count();
+    assert!(
+        fantasyland_hands > 0,
+        "seed must produce fantasyland hands or the test is vacuous"
+    );
+    for pair in probe.hands.windows(2) {
+        let (prev_seats, _) = &pair[0];
+        let (seats, in_fantasyland) = &pair[1];
+        if *in_fantasyland {
+            // A fantasyland hand extends the hand that earned it: nobody
+            // moves.
+            assert_eq!(
+                seats, prev_seats,
+                "seats must freeze for a fantasyland hand"
+            );
+        } else {
+            assert_ne!(
+                seats, prev_seats,
+                "rotation must advance into a fantasyland-free hand"
+            );
+        }
+    }
+}

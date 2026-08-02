@@ -1147,14 +1147,16 @@ full as they happen, not just at showdown. Hand 249 in `ofc.jsonl` and hand
 show the placing seat's full board being built turn by turn, something no
 live opponent bot would see until that hand's `showdown` line.
 
-**Fantasyland is carried by the bot, not the seat.** The OFC runner
-rotates bots through seats every hand for positional fairness (bot `b` sits
-at seat `(b + hand_no) % n`; see the module doc at the top of
-`crates/poker-arena/src/ofc/runner.rs`), but a `showdown` event's
-`next_fantasyland` count travels with the *bot* that earned it, not the seat
-number it was sitting in. Below, every fantasyland-entry hand is immediately
-followed by that same bot's fantasyland hand — often at a different seat
-number, since a hand's gone by in between.
+**Fantasyland freezes the seats.** The OFC runner rotates bots through
+seats between hands for positional fairness — except into a hand where any
+seat is in fantasyland: that hand is an extension of the hand that earned
+the fantasyland, so everyone keeps their previous seat until no seat is in
+fantasyland, and the rotation then resumes (see the module doc at the top
+of `crates/poker-arena/src/ofc/runner.rs`). A `showdown` event's
+`next_fantasyland` count travels with the *bot* that earned it, and because
+of the freeze, the bot plays its fantasyland hand from the very seat where
+it earned it. Below, every fantasyland-entry hand is immediately followed
+by that same bot's fantasyland hand, same seat, same header order.
 
 **Scoring, briefly.** Rows are valued bottom/middle with `high` (or, for
 `ofc-27`'s middle, `deuce_to_seven_low`) and top with `three_card_high`;
@@ -1223,14 +1225,20 @@ comparison.
   queens on top (royalty 7) for 6+7=13 from each opponent — net +39, a clean
   13×3 sweep. QQ+ on top also earns fantasyland: `next_fantasyland:13`. See
   hand 249.
-- **hand 249** — the fantasyland hand itself, one hand later. Seats have
-  rotated, so `greedy` — the seat-0 bot from hand 248 — is seat 1 here; its
-  `fantasyland` event announces 13 cards up front, and its one placement
-  turn puts down a full board at once (`bottom`: `7c 7h 7s Kd Kh`, sevens
-  full of kings, royalty 6). Of its three opponents, two foul and each pay
-  the 6-plus-royalties tax; the third is clean but simply loses every row
-  plus the royalty difference — a real three-row sweep on top of the two
-  foul payments; greedy nets +36. A full house bottom isn't quads, so
+- **hand 249** — the fantasyland hand itself, one hand later. Under the
+  freeze rule, `greedy` — the seat-0 bot from hand 248 — is *still* seat 0
+  here, not rotated away (contrast the old behavior described in "Fantasyland
+  freezes the seats" above); its `fantasyland` event announces 13 cards up
+  front, and its one placement turn puts down a full board at once with no
+  single row earning a royalty: two pair (deuces and treys) in the middle,
+  two pair (fours and sixes, ace kicker) on the bottom, no pair on top. Even
+  royalty-less, it's enough: seat 1 (`random`) fouls a pair of aces on top
+  over a pair of eights in the middle, and seat 2 (`filler`) fouls an
+  ace-high top over a king-high middle — each pays greedy the flat 6 (no
+  royalties on either side to add); seat 3 (`random-2`), the only clean
+  board, still loses every row outright (seven-high top, no-pair middle,
+  one-pair bottom, all weaker than greedy's) for a further 6 — the +1-per-row
+  plus the +3 sweep bonus. Greedy nets +18. A two-pair bottom isn't quads, so
   fantasyland doesn't carry over: `next_fantasyland:null`.
 
 ## ofc-pineapple — Pineapple OFC
@@ -1261,12 +1269,15 @@ showdown.
   count — one more than classic `ofc`'s 13, since a pineapple board is built
   from 5 + 4×3 = 17 dealt cards rather than 5 + 8×1 = 13). Seat 2 fouls;
   seat 0 nets +26. See hand 97.
-- **hand 97** — `greedy`'s fantasyland hand, one hand later, now at seat 1.
-  Its single 14-card turn places a pair of nines on top (`4s 9c 9s`, royalty
-  4), kings-and-tens two pair in the middle, and a 3-to-7 straight on the
-  bottom (`3h 4d 5s 6h 7d`, royalty 2); seat 0 fouls (its own top pair of
-  jacks outranks its middle); greedy nets +24. A straight bottom isn't
-  quads, so no stay: `next_fantasyland:null`.
+- **hand 97** — `greedy`'s fantasyland hand, one hand later, still at seat 0
+  (frozen — not rotated to seat 1 the way it would have been before the
+  freeze rule). Its single 14-card turn places a no-pair top, a bare pair of
+  deuces in the middle (no royalty), and a king-high diamond flush on the
+  bottom (`4d 6d 8d Qd Kd`, royalty 4) — modest for fantasyland, but enough:
+  seat 1 (`random`) fouls a king-high top over a jack-high middle, and seat 2
+  (`filler`) fouls a top pair of jacks over an eight-high middle; each pays
+  greedy 6 plus its 4 bottom royalty points (10 apiece). Greedy nets +20. A
+  flush bottom isn't quads, so no stay: `next_fantasyland:null`.
 
 ## ofc-progressive — Progressive Pineapple OFC
 
@@ -1294,9 +1305,18 @@ a few thousand hands each.
   6+30=36 from each and nets +72. Top trips is progressive's maximum entry
   trigger: `next_fantasyland:17`. See hand 794.
 - **hand 794** — the 17-card fantasyland hand, one hand later; `greedy` is
-  now seat 2. Its board is otherwise unremarkable (no pair top, two pair
-  middle) except a bottom flush (`6s 7s 8s 9s As`, royalty 4); one opponent
-  fouls, netting greedy +14. No stay: `next_fantasyland:null`.
+  frozen at seat 1, the same seat it entered from (not rotated to seat 2 the
+  way the pre-freeze rule would have moved it). This is the richer half of
+  the pair: greedy makes full houses on both back rows at once — eights full
+  of sevens in the middle (royalty 12) and jacks full of nines on the bottom
+  (royalty 6), 18 royalty points behind an ace-high top. Seat 2 (`random`)
+  fouls (a middle pair of aces outranks its own bottom pair of sixes) and
+  pays 6 plus greedy's 18 royalties (24); seat 0 (`filler`), clean but
+  overmatched (a bare pair of deuces on both middle and bottom), loses all
+  three rows outright to greedy's full houses for a further 24 (the sweep
+  bonus plus the royalty difference) while still collecting 6 from random's
+  foul tax. Greedy nets +48; filler nets −18; random nets −30. No stay:
+  `next_fantasyland:null`.
 
 ## ofc-27 — 2-7 Pineapple OFC
 
@@ -1314,35 +1334,50 @@ no ordering relationship with its neighbors at all. Fantasyland entry is
 once → 15 (a suited 7-5-4-3-2 is a flush, not a qualifying low, and doesn't
 count).
 
-- **hand 280** — seat 1 (`greedy`)'s middle is the exact wheel, `7s 5d 4s
-  3h 2s` — the best possible 2-7 middle, royalty 8 — carried by an
-  unremarkable top (no pair) and bottom (a pair of queens). Both opponents
-  foul, and by the *other* route: each one's own middle is a bare two-pair
-  or one-pair hand, which fails the ten-low-or-better qualifier outright,
-  independent of how its own top and bottom compare; seat 1 nets +28. The
-  wheel middle alone (no `KK+` top needed) earns fantasyland:
-  `next_fantasyland:14`. See hand 281.
-- **hand 281** — the fantasyland hand, one hand later; `greedy` is now seat
-  2. Its middle just barely qualifies (`2h 5c 6s 7s Td`, a ten-low — no
-  royalty, since royalties start at 9-low) while its bottom is a full house
-  (`9c 9h 9s Ac As`, royalty 6). Both opponents foul; greedy nets +24. No
-  stay (a full house bottom isn't quads, no top trips):
+- **hand 476** — seat 2 (`greedy`)'s middle is the exact wheel, `4h 7c 3d
+  2c 5s` — the best possible 2-7 middle, royalty 8 — carried by an
+  unremarkable top (no pair) and a two-pair bottom (jacks and eights, no
+  royalty). Both opponents foul: seat 1 (`filler`) fails purely on the
+  *other* route, a bare pair of sixes in the middle, independent of how its
+  own top (queen-high) and bottom (queen-high) compare; seat 0 (`random`)
+  fails the qualifier too (an ace makes its middle's high card too high) and
+  also has top (a pair of aces) beating its own bottom outright, a second,
+  independent foul reason. Either way both pay greedy 6 plus its 8 middle
+  royalty (14 apiece); seat 2 nets +28. The wheel middle alone (no `KK+` top
+  needed) earns fantasyland: `next_fantasyland:14`. See hand 477.
+- **hand 477** — the fantasyland hand, one hand later; the freeze keeps
+  `greedy` at seat 2, the same seat it entered from. Its middle qualifies
+  for a modest 8-low (`2d 3c 4d 6c 8h`, royalty 2) while its bottom rivers a
+  full house (`Tc Td Th Kc Kh`, tens full of kings, royalty 6). Both
+  opponents foul again, each purely on the non-qualifying-middle route (seat
+  0's `Kd`-high middle and seat 1's paired-sixes middle are both worse than
+  their own bottoms, so top-versus-bottom never enters into it this time);
+  each pays greedy 6 plus its 8 combined royalty points (14 apiece). Greedy
+  nets +28. No stay (a full house bottom isn't quads, no top trips):
   `next_fantasyland:null`.
-- **hand 1485** — a *different* fantasyland hand for `greedy` (seat 0 here,
-  dealt 14 cards from an entry earlier in the match, not shown in this
-  file), chosen to show a middle fouled purely on the non-qualifying-middle
-  rule: seat 1's middle (`8c 3h Qs 8h 9s`, a bare pair of eights) fails the
-  ten-low-or-better qualifier outright — a pair never qualifies, regardless
-  of how its top and bottom compare to each other. For contrast, the two
-  non-fouled boards both carry ordinary 2-7 middle royalties: seat 0's own
-  middle is another wheel (`2h 3c 4h 5h 7h`, royalty 8, alongside a top pair
-  of sixes worth 1 and a bottom flush worth 4), and seat 2's middle is a
-  plain 9-low (`4d 9c 3s 7d 5c`, royalty 1). Seat 0 collects the foul tax
-  from seat 1 and wins outright from seat 2 too; nets +37.
-- **hand 2084** — a clean 2-7 middle royalty with no foul on the winning
-  side: seat 2 (`greedy`)'s middle (`5d 3d 7c 2d 6d`, high card seven) is a
+- **hand 892** — a clean 2-7 middle royalty with no foul on the winning
+  side: seat 1 (`greedy`)'s middle (`3h 6h 7s 2c 5c`, high card seven) is a
   7-low, royalty 4, alongside a top pair of kings (royalty 8 — also a fresh
   `KK+` fantasyland entry, `next_fantasyland:14`, not followed further in
-  this file). Both opponents foul this time; seat 2 collects the 6-plus-12
-  tax from each and nets +36.
+  this file). Both opponents foul: seat 0's top pair of sixes outranks its
+  own no-pair bottom, while seat 2 fails purely on the
+  non-qualifying-middle route (a bare pair of eights) — its own jack-high
+  top is actually the *weaker* side of its top/bottom comparison, so that
+  route never comes into play for seat 2 at all. Each pays the 6-plus-12
+  tax; seat 1 nets +36.
+- **hand 1451** — a *different* fantasyland hand for `greedy` (seat 0 here,
+  dealt 14 cards from an entry at hand 1450, not shown in this file — the
+  same seats-equal property holds between that hand and this one, just not
+  printed), chosen to show a middle fouled purely on the non-qualifying-middle
+  rule, this time via a straight rather than a pair: seat 2's middle (`4h 6c
+  3c 5h 2c`, a made 2-to-6 straight) fails the qualifier outright — a
+  straight never qualifies, regardless of how its own top (jack-high) and
+  bottom (ace-high) compare, which here don't even foul on their own (top <
+  bottom). For contrast, the two non-fouled boards both carry ordinary 2-7
+  middle royalties: seat 0's own middle is another wheel (`2d 3d 4s 5s 7h`,
+  royalty 8, alongside a broadway straight bottom worth 2), and seat 1's
+  middle is a plain 9-low (`3h 8h 6s 7d 9d`, royalty 1). Seat 0 collects the
+  foul tax from seat 2 and, with its wheel-plus-straight board, also sweeps
+  every row against seat 1's no-pair top, 9-low middle, and one-pair bottom;
+  nets +31.
 

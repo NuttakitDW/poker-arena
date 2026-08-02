@@ -117,15 +117,20 @@ pub struct OfcStanding {
 /// `hand_no` in `0..config.hands`, a deck is shuffled from
 /// `Rng64::from_seed_stream(config.seed, hand_no)` — one distinct stream per
 /// hand, never reshuffled within it — and bot `b` sits at seat `(b +
-/// hand_no) % n`. The button is always seat 0, so rotating bots is what
-/// evens out position. There is no duplicate/deck-mirroring mode: fantasyland
-/// carries state from one hand into the next, which makes replaying a deck
-/// under a different seating incoherent.
+/// rotation) % n`, where `rotation` advances by one going *into a hand with
+/// no fantasyland seat* and freezes otherwise: a fantasyland hand is an
+/// extension of the hand that earned it, so everyone keeps their seat until
+/// nobody is in fantasyland anymore (hand numbering continues regardless).
+/// The button is always seat 0, so rotating bots is what evens out
+/// position; a match with no fantasyland rotates every hand. There is no
+/// duplicate/deck-mirroring mode: fantasyland carries state from one hand
+/// into the next, which makes replaying a deck under a different seating
+/// incoherent.
 ///
 /// Fantasyland is tracked per *bot* and translated to per-seat counts for
 /// [`OfcHandState::new`]; the settlement's `next_fantasyland` is translated
-/// back the same way, so a bot that earns fantasyland plays the next hand in
-/// it wherever the rotation seats it.
+/// back the same way — and because the rotation freezes for the fantasyland
+/// hand, the bot plays it from the very seat where it earned it.
 ///
 /// Each hand is driven via `request` / `place` / `apply` in a loop; bots
 /// receive seat-redacted events and a per-seat view of the boards (a
@@ -172,10 +177,17 @@ pub fn run_ofc_match(
 
     // Per-bot fantasyland card count entering the next hand.
     let mut fantasyland: Vec<Option<u8>> = vec![None; n];
+    // Seat-rotation offset; advances only into hands with no fantasyland
+    // seat (a fantasyland hand extends the hand that earned it, seats
+    // unchanged).
+    let mut rotation: u64 = 0;
     let mut hands_played: u64 = 0;
     let mut forfeited_by: Option<usize> = None;
 
     for hand_no in 0..config.hands {
+        if hand_no > 0 && fantasyland.iter().all(Option::is_none) {
+            rotation += 1;
+        }
         for (bot, count) in fantasyland.iter().enumerate() {
             if count.is_some() {
                 fantasylands[bot] += 1;
@@ -189,6 +201,7 @@ pub fn run_ofc_match(
             &mut faults,
             &mut decision_stats,
             hand_no,
+            rotation,
             &fantasyland,
         )?;
 
@@ -283,15 +296,16 @@ impl HandOutcome {
     }
 }
 
-/// The seat bot `bot` occupies in hand `hand_no`.
-fn seat_of_bot(hand_no: u64, bot: usize, n: usize) -> usize {
-    (bot + (hand_no % n as u64) as usize) % n
+/// The seat bot `bot` occupies at rotation offset `rotation` (which the
+/// match loop advances only into fantasyland-free hands).
+fn seat_of_bot(rotation: u64, bot: usize, n: usize) -> usize {
+    (bot + (rotation % n as u64) as usize) % n
 }
 
-/// The bot sitting at `seat` in hand `hand_no` — the inverse of
+/// The bot sitting at `seat` at rotation offset `rotation` — the inverse of
 /// [`seat_of_bot`].
-fn bot_of_seat(hand_no: u64, seat: usize, n: usize) -> usize {
-    (seat + n - (hand_no % n as u64) as usize) % n
+fn bot_of_seat(rotation: u64, seat: usize, n: usize) -> usize {
+    (seat + n - (rotation % n as u64) as usize) % n
 }
 
 /// Drive one hand from `OfcHandState::new` to settlement (or forfeit),
@@ -304,12 +318,13 @@ fn play_hand(
     faults: &mut [u64],
     decisions: &mut [DecisionStats],
     hand_no: u64,
+    rotation: u64,
     fantasyland: &[Option<u8>],
 ) -> Result<HandOutcome, OfcMatchError> {
     let n = bots.len();
     let mut by_seat: Vec<Option<u8>> = vec![None; n];
     for (bot, count) in fantasyland.iter().enumerate() {
-        by_seat[seat_of_bot(hand_no, bot, n)] = *count;
+        by_seat[seat_of_bot(rotation, bot, n)] = *count;
     }
 
     let deck = Deck::shuffled(&mut Rng64::from_seed_stream(config.seed, hand_no));
@@ -319,7 +334,7 @@ fn play_hand(
         // `seats[seat]` = the bot name sitting there this hand; only worth
         // building when a sink is actually watching.
         let seats: Vec<String> = (0..n)
-            .map(|seat| bots[bot_of_seat(hand_no, seat, n)].name().to_string())
+            .map(|seat| bots[bot_of_seat(rotation, seat, n)].name().to_string())
             .collect();
         for sink in sinks.iter_mut() {
             sink.hand_start(hand_no, &seats);
@@ -328,18 +343,18 @@ fn play_hand(
     for (bot, entry) in bots.iter_mut().enumerate() {
         entry.hand_start(&OfcHandStart {
             hand_no,
-            seat: seat_of_bot(hand_no, bot, n),
+            seat: seat_of_bot(rotation, bot, n),
             fantasyland: fantasyland[bot],
         });
     }
-    deliver_events(&setup, &state, hand_no, bots, sinks);
+    deliver_events(&setup, &state, rotation, bots, sinks);
 
     // Seats whose bot faulted this hand, whether or not the policy
     // substituted a placement and let the hand continue.
     let mut faulted_seats: Vec<usize> = Vec::new();
     while let Some(request) = state.request() {
         let seat = request.seat;
-        let bot = bot_of_seat(hand_no, seat, n);
+        let bot = bot_of_seat(rotation, seat, n);
         let boards = visible_boards(&state, seat);
         let started = std::time::Instant::now();
         let answer = bots[bot].place(&OfcActionRequest {
@@ -390,7 +405,7 @@ fn play_hand(
                 }
             }
         };
-        deliver_events(&events, &state, hand_no, bots, sinks);
+        deliver_events(&events, &state, rotation, bots, sinks);
     }
 
     let settlement = state
@@ -406,7 +421,7 @@ fn play_hand(
         forfeited_by: None,
     };
     for bot in 0..n {
-        let seat = seat_of_bot(hand_no, bot, n);
+        let seat = seat_of_bot(rotation, bot, n);
         outcome.points[bot] = settlement.points[seat];
         outcome.fouled[bot] = settlement.fouled[seat];
         outcome.royalties[bot] = settlement.royalties[seat];
@@ -455,14 +470,14 @@ fn visible_boards(state: &OfcHandState, viewer: usize) -> Vec<Board> {
 fn deliver_events(
     events: &[OfcEvent],
     state: &OfcHandState,
-    hand_no: u64,
+    rotation: u64,
     bots: &mut [Box<dyn OfcBot>],
     sinks: &mut [&mut dyn OfcEventSink],
 ) {
     let n = bots.len();
     for event in events {
         for (bot, entry) in bots.iter_mut().enumerate() {
-            entry.event(&state.redacted_for(event, seat_of_bot(hand_no, bot, n)));
+            entry.event(&state.redacted_for(event, seat_of_bot(rotation, bot, n)));
         }
         for sink in sinks.iter_mut() {
             sink.event(event);

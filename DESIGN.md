@@ -148,9 +148,11 @@ gains an `ofc` module with the same meaning its crate already had:
   lists all twenty-four variants.
 
 There is no duplicate-dealing mode for OFC: fantasyland state carried
-between hands makes deck reuse incoherent, so fairness comes from per-hand
-seat rotation and every hand is one observation. Hand count is fixed;
-fantasyland only changes how a hand is dealt.
+between hands makes deck reuse incoherent, so fairness comes from seat
+rotation and every hand is one observation. The rotation advances only
+into fantasyland-free hands — a fantasyland hand extends the hand that
+earned it, everyone keeping their seat — and the hand count is fixed
+either way; fantasyland only changes how a hand is dealt.
 
 ## Testing spine
 

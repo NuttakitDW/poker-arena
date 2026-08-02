@@ -287,14 +287,18 @@ are card-exact — classic OFC seats 4 (4 × 13 = 52), the pineapple family
 seats 3 (3 × 17 = 51) — so the deck can never run out mid-hand and no
 reshuffle rule is needed.
 
-**Fantasyland is per-bot state and never alters the hand count.** It
-follows the bot through seat rotation (earned in one seat, played wherever
-the next hand puts you), changes only how that hand is dealt, and is why
-**OFC has no duplicate-dealing mode**: replaying a deck under rotated
-seating is incoherent when the card consumption pattern itself depends on
-who is in fantasyland — which depends on how earlier hands were played.
-Fairness comes from per-hand seat rotation instead; every hand is one
-observation.
+**Fantasyland is per-bot state, freezes the seats, and never alters the
+hand count.** A fantasyland hand is an extension of the hand that earned it
+(the live rule): the seat rotation advances only into hands with no
+fantasyland seat, so the earner plays its fantasyland hand from the seat
+where it earned it and nobody else moves either — while hand numbering
+continues normally. (Revisited: rotation originally continued through
+fantasyland hands; the owner chose rules fidelity.) Fantasyland changes
+only how a hand is dealt, and is why **OFC has no duplicate-dealing mode**:
+replaying a deck under rotated seating is incoherent when the card
+consumption pattern itself depends on who is in fantasyland — which depends
+on how earlier hands were played. Fairness comes from seat rotation over
+the fantasyland-free hands instead; every hand is one observation.
 
 **The top row shares the frozen high encoding, zero-filled.** A 3-card
 value is the 5-card encoding with its unused tiebreak nibbles at zero, so

@@ -122,10 +122,15 @@ The arena-assigned competition name (duplicates across the field get `-2`,
 ```
 
 `seat` is where this bot sits *this hand*; bots rotate seats between hands
-for positional fairness. Seat 0 is always the button. Turn order for
-everything in a hand is "table order": seat 1, 2, …, n−1, 0 — the button
-acts last. Whether this bot (or anyone) is in fantasyland arrives in the
-event stream, not here.
+for positional fairness — except into a hand where any seat is in
+fantasyland: such a hand is an extension of the hand that earned the
+fantasyland, so **everyone keeps their previous seat** until no seat is in
+fantasyland, and the rotation then resumes (hand numbering continues
+regardless). Seat 0 is always the button. Turn order for everything in a
+hand is "table order": seat 1, 2, …, n−1, 0 — the button acts last.
+Whether this bot (or anyone) is in fantasyland arrives in the event
+stream, not here: one public `fantasyland {seat, cards}` event per
+fantasyland seat opens the hand, before any deal.
 
 ### `event`
 
