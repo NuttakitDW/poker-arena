@@ -58,33 +58,39 @@ pub struct BotReport {
     /// duplicate rotation-sets in duplicate mode).
     pub observations: u64,
     pub faults: u64,
-    /// Decisions this bot answered (`Bot::act` calls, `Ok` or `Err` alike).
-    /// Wall-clock timing (`decision_ms_*`, below) is measured around the
-    /// arena's call into the bot — for wire bots this includes transport
-    /// round-trip, not pure think time. The `decision_ms_*` fields are the
-    /// only part of a report that is not reproducible from `seed`: the same
-    /// seed reproduces everything else in this document (this count
-    /// included, given deterministic bots), but timing varies run to run.
-    /// All five are `null` when the bot never decided.
-    pub decisions: u64,
-    /// Exact mean wall-clock ms per decision; `null` when the bot never
-    /// decided.
-    pub decision_ms_mean: Option<f64>,
+    /// Timing of this bot's decisions (`Bot::act` calls).
+    pub decisions: DecisionTiming,
+    pub behavior: BehaviorReport,
+}
+
+/// Wall-clock timing of a bot's decisions, measured around the arena's call
+/// into the bot — for a wire bot this includes the transport round-trip,
+/// not pure think time. `count` covers every call whether it returned an
+/// action or faulted (a timeout's elapsed time is real and counted).
+///
+/// The `*_ms` fields are the only part of a report that is not reproducible
+/// from `seed`: the same seed reproduces everything else (the count
+/// included, given deterministic bots), but timing varies run to run. All
+/// five are `null` when the bot never decided. Shared by both report
+/// schemas ([`BotReport`] and `OfcBotReport`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DecisionTiming {
+    pub count: u64,
+    /// Exact mean wall-clock ms per decision.
+    pub mean_ms: Option<f64>,
     /// Approximate median wall-clock ms, from a log-scaled histogram (not
     /// the exact value — see `poker_arena::stat::DecisionStats::quantile`):
     /// relative error is bounded by that histogram's bucket ratio, about
-    /// ±4.5%. `null` when the bot never decided.
-    pub decision_ms_p50: Option<f64>,
+    /// ±4.5%.
+    pub p50_ms: Option<f64>,
     /// Approximate 90th-percentile wall-clock ms, same histogram and error
-    /// bound as `decision_ms_p50`; `null` when the bot never decided.
-    pub decision_ms_p90: Option<f64>,
+    /// bound as `p50_ms`.
+    pub p90_ms: Option<f64>,
     /// Approximate 99th-percentile wall-clock ms, same histogram and error
-    /// bound as `decision_ms_p50`; `null` when the bot never decided.
-    pub decision_ms_p99: Option<f64>,
-    /// Exact max wall-clock ms across this bot's decisions; `null` when the
-    /// bot never decided.
-    pub decision_ms_max: Option<f64>,
-    pub behavior: BehaviorReport,
+    /// bound as `p50_ms`.
+    pub p99_ms: Option<f64>,
+    /// Exact max wall-clock ms across every decision.
+    pub max_ms: Option<f64>,
 }
 
 /// Behavioral profile, all rates in `[0, 1]`.
@@ -153,12 +159,14 @@ mod tests {
                 chips_per100_ci95: Some(8070.0),
                 observations: 50,
                 faults: 0,
-                decisions: 200,
-                decision_ms_mean: Some(0.4),
-                decision_ms_p50: Some(0.3),
-                decision_ms_p90: Some(0.9),
-                decision_ms_p99: Some(5.2),
-                decision_ms_max: Some(12.1),
+                decisions: DecisionTiming {
+                    count: 200,
+                    mean_ms: Some(0.4),
+                    p50_ms: Some(0.3),
+                    p90_ms: Some(0.9),
+                    p99_ms: Some(5.2),
+                    max_ms: Some(12.1),
+                },
                 behavior: BehaviorReport {
                     vpip: 0.6,
                     pfr: 0.3,

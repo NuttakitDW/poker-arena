@@ -432,7 +432,7 @@ alone); `schema_version` bumps on any breaking shape change.
 ### Match report (`--output json`, stdout, once)
 
 ```json
-{"schema_version":1,"family":"betting","game_id":"27td-fl","seed":9,"dealing":"duplicate","decks":50,"hands":100,"seat_count":2,"starting_stack":10000,"stakes":{"kind":"blinds","small_blind":50,"big_blind":100,"ante":0},"betting":{"kind":"fixed-limit","raise_cap":4},"fault_policy":"substitute","timeout_ms":1000,"forfeited_by":null,"bots":[{"name":"random","hands":100,"total_chips":650,"chips_per100_mean":650.0,"chips_per100_ci95":8071.0,"observations":50,"faults":0,"decisions":812,"decision_ms_mean":0.4,"decision_ms_p50":0.3,"decision_ms_p90":0.9,"decision_ms_p99":5.2,"decision_ms_max":12.1,"behavior":{"vpip":0.63,"pfr":0.36,"af":1.41,"wtsd":0.11,"wsd":0.47,"fold_rate":0.69}}]}
+{"schema_version":1,"family":"betting","game_id":"27td-fl","seed":9,"dealing":"duplicate","decks":50,"hands":100,"seat_count":2,"starting_stack":10000,"stakes":{"kind":"blinds","small_blind":50,"big_blind":100,"ante":0},"betting":{"kind":"fixed-limit","raise_cap":4},"fault_policy":"substitute","timeout_ms":1000,"forfeited_by":null,"bots":[{"name":"random","hands":100,"total_chips":650,"chips_per100_mean":650.0,"chips_per100_ci95":8071.0,"observations":50,"faults":0,"decisions":{"count":812,"mean_ms":0.4,"p50_ms":0.3,"p90_ms":0.9,"p99_ms":5.2,"max_ms":12.1},"behavior":{"vpip":0.63,"pfr":0.36,"af":1.41,"wtsd":0.11,"wsd":0.47,"fold_rate":0.69}}]}
 ```
 
 - `family` is always `"betting"` here: the CLI emits a different report
@@ -450,20 +450,19 @@ alone); `schema_version` bumps on any breaking shape change.
 - `behavior.af` is `null` when infinite (no calls but some aggression).
 - `seed` reproduces the match exactly; `forfeited_by` names the offender
   when a forfeit ended it early (exit code 2).
-- `decisions`, `decision_ms_mean`, `decision_ms_p50`, `decision_ms_p90`,
-  `decision_ms_p99`, `decision_ms_max`: wall-clock timing of this bot's
-  decisions (`act` calls), measured around the arena's call into the bot —
-  for a wire bot this includes the transport round-trip, not pure think
-  time. `decisions` counts every call whether it returned an action or
-  faulted (a timeout's elapsed time is real and counted); `decision_ms_mean`
-  and `decision_ms_max` are exact, while the three percentiles are
-  approximated from a fixed-size log-scaled histogram (not the exact
-  values), with relative error bounded by about ±4.5%. All five are `null`
-  (`0` for `decisions`) when the bot never decided. **The `decision_ms_*`
-  fields are the only ones in this report that are not reproducible from
-  `seed`** — the same seed reproduces everything else in this document
-  byte-for-byte (`decisions` included, given deterministic bots), but
-  timing varies run to run.
+- `decisions`: wall-clock timing of this bot's decisions (`act` calls),
+  measured around the arena's call into the bot — for a wire bot this
+  includes the transport round-trip, not pure think time. `count` covers
+  every call whether it returned an action or faulted (a timeout's elapsed
+  time is real and counted); `mean_ms` and `max_ms` are exact, while
+  `p50_ms`/`p90_ms`/`p99_ms` are approximated from a fixed-size log-scaled
+  histogram (not the exact values), with relative error bounded by about
+  ±4.5%. All five `*_ms` fields are `null` when the bot never decided.
+  **The `*_ms` fields are the only ones in this report that are not
+  reproducible from `seed`** — the same seed reproduces everything else in
+  this document byte-for-byte (`count` included, given deterministic
+  bots), but timing varies run to run. The same object, under the same
+  key, appears in the OFC report (`WIRE_PROTOCOL_OFC.md`).
 
 ### Progress lines (`--progress-json`, stderr, repeating)
 

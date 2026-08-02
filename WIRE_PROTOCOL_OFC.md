@@ -270,8 +270,8 @@ points replacing chips; Rust types in `crates/poker-wire/src/ofc/report.rs`
  "bots":[{"name":"greedy","kind":"builtin:greedy","points":412,
    "points_per_hand_mean":0.412,"points_per_hand_ci95":0.53,"hands":1000,
    "fouls":31,"fantasylands":48,"scoops":112,"royalties":690,"faults":0,
-   "decisions":4126,"decision_ms_mean":0.6,"decision_ms_p50":0.5,
-   "decision_ms_p90":1.1,"decision_ms_p99":4.8,"decision_ms_max":9.4},
+   "decisions":{"count":4126,"mean_ms":0.6,"p50_ms":0.5,
+     "p90_ms":1.1,"p99_ms":4.8,"max_ms":9.4}},
   ...]}
 ```
 
@@ -285,20 +285,14 @@ in* fantasyland; `scoops` counts opponents scooped (all three rows won
 outright, or the opponent fouled while this bot did not), summed across
 hands; `royalties` is total royalty points earned (fouled hands earn none).
 
-`decisions`, `decision_ms_mean`, `decision_ms_p50`, `decision_ms_p90`,
-`decision_ms_p99`, `decision_ms_max`: wall-clock timing of this bot's
-decisions (`place` calls), measured around the arena's call into the bot —
-for a wire bot this includes the transport round-trip, not pure think time.
-`decisions` counts every call whether it returned a placement or faulted (a
-timeout's elapsed time is real and counted); `decision_ms_mean` and
-`decision_ms_max` are exact, while the three percentiles are approximated
-from a fixed-size log-scaled histogram (not the exact values), with
-relative error bounded by about ±4.5%. All five are `null` (`0` for
-`decisions`) when the bot never decided. **The `decision_ms_*` fields are
-the only ones in this report that are not reproducible from `seed`** — the
-same seed reproduces everything else in this document byte-for-byte
-(`decisions` included, given deterministic bots), but timing varies run to
-run.
+`decisions`: wall-clock timing of this bot's decisions (`place` calls) —
+the same object, under the same key, as the betting report's (see
+`WIRE_PROTOCOL.md` for the full field semantics): `count` covers every
+call whether it returned a placement or faulted, `mean_ms`/`max_ms` are
+exact, `p50_ms`/`p90_ms`/`p99_ms` come from a fixed-size log-scaled
+histogram (≈ ±4.5% relative error), all `*_ms` fields are `null` when the
+bot never decided, and **the `*_ms` fields are the only ones in this
+report that are not reproducible from `seed`**.
 
 ### Progress lines (`--progress-json`, stderr, repeating)
 
