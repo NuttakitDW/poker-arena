@@ -31,9 +31,13 @@ before diving into those four.
 
 ## Line shape
 
-Every line is one JSON object:
+Each hand opens with a header line carrying no `"ev"` key,
+`{"hand": N, "deck": D, "seats": [...]}` (which bot sat which seat that
+hand), immediately followed by that hand's event lines, each one JSON
+object:
 
 ```json
+{"hand": 175, "deck": 175, "seats": ["...", "...", "..."]}
 {"hand": 175, "ev": {"event": "...", ...}}
 ```
 
@@ -49,24 +53,18 @@ is the authoritative field reference for every event type below
 `deal-up`, `acted`, `draw-result`, `showdown-show`, `pot-awarded`,
 `hand-end`).
 
-A hand in one of these files is always the complete, contiguous run from
-its `hand-start` line to its matching `hand-end` line — nothing is
-truncated mid-hand.
+A hand in one of these files is always the header line plus the complete,
+contiguous run from its `hand-start` line to its matching `hand-end` line —
+nothing is truncated mid-hand.
 
-**Two more line kinds, `27sd-nl` only.** The engine that produced
-`27sd-nl.jsonl` emits two line kinds with no `"ev"` key at all: a per-hand
-header immediately before that hand's `hand-start`,
-`{"hand": N, "deck": D, "seats": [...]}` (which bot sat which seat that
-hand), and a single trailing `{"log_summary": {"hands_seen": N,
-"hands_kept": N}}` at the very end of the file, match-level rather than
-per-hand. `27sd-nl.jsonl` keeps each curated hand's header line verbatim
-immediately before its events (so `grep`/`jq` still land on a complete,
-self-describing block); it does not include the trailing `log_summary`
-line, since that's a whole-match summary, not part of any one hand. The
-other nineteen files predate this log format change and don't have either
-line kind — if you regenerate one of *those* nineteen with the current
-binary, expect the same two additions to show up in your fresh log even
-though the checked-in file doesn't have them.
+**One more line kind, dropped here.** A full match log also ends with a
+single trailing `{"log_summary": {"hands_seen": N, "hands_kept": N}}` line,
+match-level rather than per-hand. Every file in this directory keeps each
+curated hand's header line verbatim immediately before its events (so
+`grep`/`jq` still land on a complete, self-describing block) but omits that
+trailing `log_summary` line, since it's a whole-match summary, not part of
+any one hand — if you regenerate a full match log yourself, expect that one
+extra line at the very end even though no file here has it.
 
 ## How to read a hand
 
@@ -1109,16 +1107,17 @@ the module doc at the top of `crates/poker-core/src/ofc/state.rs`; what
 follows is enough to read these four files without it.
 
 **Line shape.** Every OFC hand opens with a header line carrying no `"ev"`
-key, `{"hand":N,"seats":[...]}` — like `27sd-nl`'s header (see above) except
-there is no `deck` field: an OFC match has no deck-grouping concept, one hand
-is one deck, so there is nothing to group (see the module doc at the top of
+key, `{"hand":N,"seats":[...]}` — the same per-hand header shape as the
+twenty betting-game files above (see "Line shape" above), except there is
+no `deck` field: an OFC match has no deck-grouping concept, one hand is one
+deck, so there is nothing to group (see the module doc at the top of
 `crates/poker-arena/src/ofc/log.rs`). Every event line is
 `{"hand":N,"ev":<OfcEvent>}`, serialized exactly as
 [`WIRE_PROTOCOL_OFC.md`](../WIRE_PROTOCOL_OFC.md) documents under
 [Events (`OfcEvent`)](../WIRE_PROTOCOL_OFC.md#events-ofcevent) — `fantasyland`,
-`deal`, `place`, `showdown`, `score`. As with `27sd-nl`, each file below keeps
-its curated hands' header lines but drops the trailing
-`{"log_summary":{...}}` line, since that's match-level, not per-hand.
+`deal`, `place`, `showdown`, `score`. As above, each file below keeps its
+curated hands' header lines but drops the trailing `{"log_summary":{...}}`
+line, since that's match-level, not per-hand.
 
 **How to read a hand.** `fantasyland` (if present) announces a seat's card
 count for the hand before any deal. `deal`/`place` pairs repeat once per

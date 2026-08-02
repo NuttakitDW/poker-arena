@@ -1,3 +1,4 @@
+{"hand":4,"deck":4,"seats":["shover","caller","random","random-2"]}
 {"hand":4,"ev":{"event":"hand-start","hand_no":4,"button":0,"stacks":[10000,10000,10000,10000]}}
 {"hand":4,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}
 {"hand":4,"ev":{"event":"post","seat":2,"kind":"big-blind","amount":100,"all_in":false}}
@@ -44,6 +45,7 @@
 {"hand":4,"ev":{"event":"pot-awarded","pot":0,"side":"hi","winners":[[1,1500]]}}
 {"hand":4,"ev":{"event":"pot-awarded","pot":0,"side":"lo","winners":[[0,1500]]}}
 {"hand":4,"ev":{"event":"hand-end","nets":[500,500,-500,-500]}}
+{"hand":6,"deck":6,"seats":["random","random-2","caller","shover"]}
 {"hand":6,"ev":{"event":"hand-start","hand_no":6,"button":0,"stacks":[10000,10000,10000,10000]}}
 {"hand":6,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}
 {"hand":6,"ev":{"event":"post","seat":2,"kind":"big-blind","amount":100,"all_in":false}}
@@ -91,6 +93,7 @@
 {"hand":6,"ev":{"event":"pot-awarded","pot":0,"side":"hi","winners":[[3,1750]]}}
 {"hand":6,"ev":{"event":"pot-awarded","pot":0,"side":"lo","winners":[[2,1750]]}}
 {"hand":6,"ev":{"event":"hand-end","nets":[-400,-700,550,550]}}
+{"hand":9,"deck":9,"seats":["random-2","shover","random","caller"]}
 {"hand":9,"ev":{"event":"hand-start","hand_no":9,"button":0,"stacks":[10000,10000,10000,10000]}}
 {"hand":9,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}
 {"hand":9,"ev":{"event":"post","seat":2,"kind":"big-blind","amount":100,"all_in":false}}
@@ -135,6 +138,7 @@
 {"hand":9,"ev":{"event":"pot-awarded","pot":0,"side":"hi","winners":[[1,2100]]}}
 {"hand":9,"ev":{"event":"pot-awarded","pot":0,"side":"lo","winners":[[1,2100]]}}
 {"hand":9,"ev":{"event":"hand-end","nets":[-200,2800,-1200,-1400]}}
+{"hand":24,"deck":24,"seats":["caller","random","shover","random-2"]}
 {"hand":24,"ev":{"event":"hand-start","hand_no":24,"button":0,"stacks":[10000,10000,10000,10000]}}
 {"hand":24,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}
 {"hand":24,"ev":{"event":"post","seat":2,"kind":"big-blind","amount":100,"all_in":false}}
@@ -181,6 +185,7 @@
 {"hand":24,"ev":{"event":"pot-awarded","pot":0,"side":"hi","winners":[[2,1750]]}}
 {"hand":24,"ev":{"event":"pot-awarded","pot":0,"side":"lo","winners":[[2,1750]]}}
 {"hand":24,"ev":{"event":"hand-end","nets":[-1200,-700,2300,-400]}}
+{"hand":34,"deck":34,"seats":["random","random-2","shover","caller"]}
 {"hand":34,"ev":{"event":"hand-start","hand_no":34,"button":0,"stacks":[10000,10000,10000,10000]}}
 {"hand":34,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}
 {"hand":34,"ev":{"event":"post","seat":2,"kind":"big-blind","amount":100,"all_in":false}}

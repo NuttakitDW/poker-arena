@@ -1,3 +1,4 @@
+{"hand":0,"deck":0,"seats":["random-2","random","shover","random-3","caller"]}
 {"hand":0,"ev":{"event":"hand-start","hand_no":0,"button":0,"stacks":[10000,10000,10000,10000,10000]}}
 {"hand":0,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}
 {"hand":0,"ev":{"event":"post","seat":2,"kind":"big-blind","amount":100,"all_in":false}}
@@ -28,6 +29,7 @@
 {"hand":0,"ev":{"event":"showdown-show","seat":0,"cards":["8h","9h"],"hi":1296752,"lo":null}}
 {"hand":0,"ev":{"event":"pot-awarded","pot":0,"side":"whole","winners":[[2,50000]]}}
 {"hand":0,"ev":{"event":"hand-end","nets":[-10000,-10000,40000,-10000,-10000]}}
+{"hand":3,"deck":3,"seats":["random-2","random-3","random","caller","shover"]}
 {"hand":3,"ev":{"event":"hand-start","hand_no":3,"button":0,"stacks":[10000,10000,10000,10000,10000]}}
 {"hand":3,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}
 {"hand":3,"ev":{"event":"post","seat":2,"kind":"big-blind","amount":100,"all_in":false}}
@@ -54,6 +56,7 @@
 {"hand":3,"ev":{"event":"showdown-show","seat":4,"cards":["Js","3c"],"hi":2558208,"lo":null}}
 {"hand":3,"ev":{"event":"pot-awarded","pot":0,"side":"whole","winners":[[2,30050]]}}
 {"hand":3,"ev":{"event":"hand-end","nets":[0,-50,20050,-10000,-10000]}}
+{"hand":28,"deck":28,"seats":["shover","random-3","random","random-2","caller"]}
 {"hand":28,"ev":{"event":"hand-start","hand_no":28,"button":0,"stacks":[10000,10000,10000,10000,10000]}}
 {"hand":28,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}
 {"hand":28,"ev":{"event":"post","seat":2,"kind":"big-blind","amount":100,"all_in":false}}
@@ -80,6 +83,7 @@
 {"hand":28,"ev":{"event":"showdown-show","seat":0,"cards":["5s","Jh"],"hi":2790144,"lo":null}}
 {"hand":28,"ev":{"event":"pot-awarded","pot":0,"side":"whole","winners":[[4,30100]]}}
 {"hand":28,"ev":{"event":"hand-end","nets":[-10000,-10000,-100,0,20100]}}
+{"hand":141,"deck":141,"seats":["caller","random-2","shover","random","random-3"]}
 {"hand":141,"ev":{"event":"hand-start","hand_no":141,"button":0,"stacks":[10000,10000,10000,10000,10000]}}
 {"hand":141,"ev":{"event":"post","seat":1,"kind":"small-blind","amount":50,"all_in":false}}
 {"hand":141,"ev":{"event":"post","seat":2,"kind":"big-blind","amount":100,"all_in":false}}
