@@ -377,18 +377,28 @@ fn print_behavior_report(result: &poker_arena::MatchResult) {
     }
 }
 
+/// Compact `p50/p99/max` decision-timing field, one decimal each; `-` when
+/// the bot never decided (`decision_stats.count() == 0`).
+fn decision_field(stats: &poker_arena::stat::DecisionStats) -> String {
+    match (stats.quantile(0.5), stats.quantile(0.99), stats.max_ms()) {
+        (Some(p50), Some(p99), Some(max)) => format!("{p50:.1}/{p99:.1}/{max:.1}"),
+        _ => "-".to_string(),
+    }
+}
+
 fn print_report(config: &MatchConfig, result: &poker_arena::MatchResult) {
     // Conventional display units: big bets for fixed limit ("BB/100"),
     // big blinds for pot/no-limit ("bb/100"). Stats accumulate in chips.
     let (divisor, label) = config.spec.rate_unit();
     let divisor = divisor.max(1) as f64;
     println!(
-        "{:<16} {:>10} {:>14} {:>24} {:>7}",
+        "{:<16} {:>10} {:>14} {:>24} {:>7} {:>16}",
         "bot",
         "hands",
         "total chips",
         format!("{label} (±ci95)"),
-        "faults"
+        "faults",
+        "ms p50/p99/max"
     );
     for o in &result.outcomes {
         let mean100 = o.stats.mean() * 100.0 / divisor;
@@ -397,8 +407,13 @@ fn print_report(config: &MatchConfig, result: &poker_arena::MatchResult) {
             None => format!("{mean100:+.3} ± n/a"),
         };
         println!(
-            "{:<16} {:>10} {:>14} {:>24} {:>7}",
-            o.name, result.hands_played, o.total_net_chips, bb_field, o.faults
+            "{:<16} {:>10} {:>14} {:>24} {:>7} {:>16}",
+            o.name,
+            result.hands_played,
+            o.total_net_chips,
+            bb_field,
+            o.faults,
+            decision_field(&o.decision_stats)
         );
     }
 

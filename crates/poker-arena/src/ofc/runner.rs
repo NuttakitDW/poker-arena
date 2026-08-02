@@ -19,7 +19,7 @@ use crate::config::FaultPolicy;
 use crate::ofc::bot::{OfcActionRequest, OfcBot, OfcHandEnd, OfcHandStart};
 use crate::ofc::builtin::filler_action;
 use crate::ofc::log::{OfcEventSink, OfcHandMeta};
-use crate::stat::RateStats;
+use crate::stat::{DecisionStats, RateStats};
 
 /// Full description of one OFC match.
 #[derive(Clone, Debug)]
@@ -72,6 +72,10 @@ pub struct OfcBotOutcome {
     /// Royalty points earned across the match (a fouled hand earns none).
     pub royalties: u64,
     pub faults: u64,
+    /// Wall-clock timing of every `place` call this bot answered, whether
+    /// it returned `Ok` or `Err`. The only field on this struct that is not
+    /// reproduced by replaying the same seed.
+    pub decision_stats: DecisionStats,
 }
 
 /// Outcome of a full match.
@@ -164,6 +168,7 @@ pub fn run_ofc_match(
     let mut fantasylands = vec![0u64; n];
     let mut scoops = vec![0u64; n];
     let mut royalties = vec![0u64; n];
+    let mut decision_stats: Vec<DecisionStats> = vec![DecisionStats::new(); n];
 
     // Per-bot fantasyland card count entering the next hand.
     let mut fantasyland: Vec<Option<u8>> = vec![None; n];
@@ -177,7 +182,15 @@ pub fn run_ofc_match(
             }
         }
 
-        let outcome = play_hand(config, bots, sinks, &mut faults, hand_no, &fantasyland)?;
+        let outcome = play_hand(
+            config,
+            bots,
+            sinks,
+            &mut faults,
+            &mut decision_stats,
+            hand_no,
+            &fantasyland,
+        )?;
 
         if let Some(offender) = outcome.forfeited_by {
             forfeited_by = Some(offender);
@@ -233,6 +246,7 @@ pub fn run_ofc_match(
             scoops: scoops[bot],
             royalties: royalties[bot],
             faults: faults[bot],
+            decision_stats: decision_stats[bot].clone(),
         })
         .collect();
 
@@ -282,11 +296,13 @@ fn bot_of_seat(hand_no: u64, seat: usize, n: usize) -> usize {
 
 /// Drive one hand from `OfcHandState::new` to settlement (or forfeit),
 /// delivering redacted events to bots and the unredacted stream to `sinks`.
+#[allow(clippy::too_many_arguments)]
 fn play_hand(
     config: &OfcMatchConfig,
     bots: &mut [Box<dyn OfcBot>],
     sinks: &mut [&mut dyn OfcEventSink],
     faults: &mut [u64],
+    decisions: &mut [DecisionStats],
     hand_no: u64,
     fantasyland: &[Option<u8>],
 ) -> Result<HandOutcome, OfcMatchError> {
@@ -325,6 +341,7 @@ fn play_hand(
         let seat = request.seat;
         let bot = bot_of_seat(hand_no, seat, n);
         let boards = visible_boards(&state, seat);
+        let started = std::time::Instant::now();
         let answer = bots[bot].place(&OfcActionRequest {
             hand_no,
             seat,
@@ -334,6 +351,7 @@ fn play_hand(
             boards: &boards,
             fantasyland: state.fantasyland(),
         });
+        decisions[bot].record(started.elapsed());
 
         // A transport fault (Err) and a placement the engine rejects are the
         // same thing to the arena: a fault, handled per policy.
@@ -502,6 +520,36 @@ mod tests {
         assert_eq!(result.hands_played, hands);
         let total: i64 = result.outcomes.iter().map(|o| o.total_points).sum();
         assert_eq!(total, 0, "points only move between bots");
+    }
+
+    /// Every `place` call the runner drives must leave a timing trace:
+    /// nonzero count, a max that bounds the mean, and a max that is
+    /// actually positive (an `Instant` pair spanning real work). Fantasyland
+    /// makes the exact per-hand turn count hard to pin down here, so this
+    /// only checks the shape of the accumulator, not an exact count.
+    #[test]
+    fn decision_timing_is_recorded_for_every_bot() {
+        let hands = 12;
+        let mut bots: Vec<Box<dyn OfcBot>> = vec![
+            Box::new(OfcGreedy::new("greedy", OFC_PINEAPPLE.middle)),
+            Box::new(OfcRandom::new("random", 3)),
+            Box::new(OfcFiller::new("filler")),
+        ];
+        let result = run_ofc_match(
+            &config(OFC_PINEAPPLE, hands, 11, FaultPolicy::Substitute),
+            &mut bots,
+            &mut [],
+            None,
+        )
+        .unwrap();
+
+        for o in &result.outcomes {
+            assert!(o.decision_stats.count() > 0, "{}", o.name);
+            let mean = o.decision_stats.mean_ms().expect("count > 0");
+            let max = o.decision_stats.max_ms().expect("count > 0");
+            assert!(mean <= max, "{}: mean {mean} > max {max}", o.name);
+            assert!(max > 0.0, "{}: max must be a real elapsed time", o.name);
+        }
     }
 
     #[test]

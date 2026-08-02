@@ -20,7 +20,13 @@ poker-wire = { path = "crates/poker-wire" }
 clap = { version = "4", features = ["derive"] }
 criterion = "0.8"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+
+# `float_roundtrip`: without it, serde_json's float parser can be off by a
+# few ULPs from what it wrote, which breaks the wire-report round-trip
+# tests now that reports carry decision-timing floats computed from
+# arbitrary wall-clock durations (see `poker-wire/src/report.rs` and its
+# `ofc` counterpart).
+serde_json = { version = "1", features = ["float_roundtrip"] }
 thiserror = "2"
 
 # The evaluator test suite sweeps all C(52,5) hands; keep tests optimized.

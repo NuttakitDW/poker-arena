@@ -24,7 +24,7 @@ use crate::behavior::BehaviorStats;
 use crate::bot::{ActionRequest, Bot, HandEnd, HandStart};
 use crate::config::{DealingMode, FaultPolicy, MatchConfig};
 use crate::log::{EventSink, HandMeta};
-use crate::stat::RateStats;
+use crate::stat::{DecisionStats, RateStats};
 
 /// Reported to an optional progress callback after each deck finishes.
 pub struct Progress<'a> {
@@ -84,6 +84,10 @@ pub struct BotOutcome {
     /// This bot's behavioral profile (VPIP/PFR/AF/WTSD/WSD/fold rate)
     /// accumulated over every completed hand of the match.
     pub behavior: BehaviorStats,
+    /// Wall-clock timing of every `act` call this bot answered, whether it
+    /// returned `Ok` or `Err`. The only field on this struct that is not
+    /// reproduced by replaying the same seed.
+    pub decision_stats: DecisionStats,
 }
 
 /// Outcome of a full match.
@@ -158,6 +162,7 @@ pub fn run_match(
     let mut stats: Vec<RateStats> = vec![RateStats::new(); n];
     let mut faults = vec![0u64; n];
     let mut behavior: Vec<BehaviorStats> = vec![BehaviorStats::new(); n];
+    let mut decision_stats: Vec<DecisionStats> = vec![DecisionStats::new(); n];
 
     let mut hand_no: u64 = 0;
     let mut hands_played: u64 = 0;
@@ -183,6 +188,7 @@ pub fn run_match(
                 bots,
                 &mut sink,
                 &mut faults,
+                &mut decision_stats,
                 hand_no,
                 deck_no,
                 deck.clone(),
@@ -251,6 +257,7 @@ pub fn run_match(
             stats: stats[b].clone(),
             faults: faults[b],
             behavior: behavior[b].clone(),
+            decision_stats: decision_stats[b].clone(),
         })
         .collect();
 
@@ -323,6 +330,7 @@ fn play_hand(
     bots: &mut [Box<dyn Bot>],
     sink: &mut Option<&mut dyn EventSink>,
     faults: &mut [u64],
+    decisions: &mut [DecisionStats],
     hand_no: u64,
     deck_no: u64,
     deck: Deck,
@@ -385,7 +393,9 @@ fn play_hand(
             folded: state.folded(),
             legal: &legal,
         };
+        let started = std::time::Instant::now();
         let action = bots[bot].act(&req);
+        decisions[bot].record(started.elapsed());
 
         // A transport fault (Err) and an action the engine rejects are the
         // same thing to the arena: a fault, handled per policy.
@@ -549,6 +559,31 @@ mod tests {
             assert_eq!(oa.faults, ob.faults);
             assert_eq!(oa.stats.count(), ob.stats.count());
             assert!((oa.stats.mean() - ob.stats.mean()).abs() < 1e-12);
+            // Decision counts are reproduced exactly (same hands, same
+            // decisions); only the wall-clock timing itself is left out of
+            // this comparison, since it is the one field that legitimately
+            // differs run to run.
+            assert_eq!(oa.decision_stats.count(), ob.decision_stats.count());
+        }
+    }
+
+    /// Every decision the runner drives through `Bot::act` must leave a
+    /// timing trace: nonzero count, a max that bounds the mean, and a max
+    /// that is actually positive (an `Instant` pair spanning real work).
+    #[test]
+    fn decision_timing_is_recorded_for_every_bot() {
+        let config = nl_config(20, 55, DealingMode::Seeded, FaultPolicy::Substitute);
+        let mut bots: Vec<Box<dyn Bot>> = vec![
+            Box::new(Caller::new("caller")),
+            Box::new(Random::new("random", 4)),
+        ];
+        let result = run_match(&config, &mut bots, None, None).unwrap();
+        for o in &result.outcomes {
+            assert!(o.decision_stats.count() > 0, "{}", o.name);
+            let mean = o.decision_stats.mean_ms().expect("count > 0");
+            let max = o.decision_stats.max_ms().expect("count > 0");
+            assert!(mean <= max, "{}: mean {mean} > max {max}", o.name);
+            assert!(max > 0.0, "{}: max must be a real elapsed time", o.name);
         }
     }
 

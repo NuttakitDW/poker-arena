@@ -60,6 +60,32 @@ pub struct OfcBotReport {
     /// Total royalty points earned across the match.
     pub royalties: u64,
     pub faults: u64,
+    /// Decisions this bot answered (`OfcBot::place` calls, `Ok` or `Err`
+    /// alike). Wall-clock timing (`decision_ms_*`, below) is measured
+    /// around the arena's call into the bot — for wire bots this includes
+    /// transport round-trip, not pure think time. The `decision_ms_*`
+    /// fields are the only part of a report that is not reproducible from
+    /// `seed`: the same seed reproduces everything else in this document
+    /// (this count included, given deterministic bots), but timing varies
+    /// run to run. All five are `null` when the bot never decided.
+    pub decisions: u64,
+    /// Exact mean wall-clock ms per decision; `null` when the bot never
+    /// decided.
+    pub decision_ms_mean: Option<f64>,
+    /// Approximate median wall-clock ms, from a log-scaled histogram (not
+    /// the exact value — see `poker_arena::stat::DecisionStats::quantile`):
+    /// relative error is bounded by that histogram's bucket ratio, about
+    /// ±4.5%. `null` when the bot never decided.
+    pub decision_ms_p50: Option<f64>,
+    /// Approximate 90th-percentile wall-clock ms, same histogram and error
+    /// bound as `decision_ms_p50`; `null` when the bot never decided.
+    pub decision_ms_p90: Option<f64>,
+    /// Approximate 99th-percentile wall-clock ms, same histogram and error
+    /// bound as `decision_ms_p50`; `null` when the bot never decided.
+    pub decision_ms_p99: Option<f64>,
+    /// Exact max wall-clock ms across this bot's decisions; `null` when the
+    /// bot never decided.
+    pub decision_ms_max: Option<f64>,
 }
 
 /// One interim-standings line: a live leaderboard snapshot with tightening
@@ -108,6 +134,12 @@ mod tests {
                 scoops: 3,
                 royalties: 40,
                 faults: 0,
+                decisions: 500,
+                decision_ms_mean: Some(0.6),
+                decision_ms_p50: Some(0.5),
+                decision_ms_p90: Some(1.1),
+                decision_ms_p99: Some(4.8),
+                decision_ms_max: Some(9.4),
             }],
         }
     }

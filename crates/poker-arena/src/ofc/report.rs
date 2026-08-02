@@ -57,6 +57,12 @@ pub fn ofc_match_report(
                 scoops: outcome.scoops,
                 royalties: outcome.royalties,
                 faults: outcome.faults,
+                decisions: outcome.decision_stats.count(),
+                decision_ms_mean: outcome.decision_stats.mean_ms(),
+                decision_ms_p50: outcome.decision_stats.quantile(0.5),
+                decision_ms_p90: outcome.decision_stats.quantile(0.9),
+                decision_ms_p99: outcome.decision_stats.quantile(0.99),
+                decision_ms_max: outcome.decision_stats.max_ms(),
             })
             .collect(),
     }
@@ -123,6 +129,16 @@ mod tests {
         for entry in bots {
             assert_eq!(entry["hands"], 40);
             assert!(entry["points_per_hand_ci95"].as_f64().unwrap() >= 0.0);
+            assert!(entry["decisions"].as_u64().unwrap() > 0);
+            let mean = entry["decision_ms_mean"].as_f64().unwrap();
+            let p50 = entry["decision_ms_p50"].as_f64().unwrap();
+            let p90 = entry["decision_ms_p90"].as_f64().unwrap();
+            let p99 = entry["decision_ms_p99"].as_f64().unwrap();
+            let max = entry["decision_ms_max"].as_f64().unwrap();
+            assert!(mean >= 0.0);
+            assert!(p50 <= p90, "p50 {p50} > p90 {p90}");
+            assert!(p90 <= p99, "p90 {p90} > p99 {p99}");
+            assert!(p99 <= max, "p99 {p99} > max {max}");
         }
 
         // The wire shape is the parse contract: round-trip through it.

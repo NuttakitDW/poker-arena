@@ -269,7 +269,9 @@ points replacing chips; Rust types in `crates/poker-wire/src/ofc/report.rs`
  "seat_count":2,"timeout_ms":5000,"fault_policy":"substitute","forfeited_by":null,
  "bots":[{"name":"greedy","kind":"builtin:greedy","points":412,
    "points_per_hand_mean":0.412,"points_per_hand_ci95":0.53,"hands":1000,
-   "fouls":31,"fantasylands":48,"scoops":112,"royalties":690,"faults":0},
+   "fouls":31,"fantasylands":48,"scoops":112,"royalties":690,"faults":0,
+   "decisions":4126,"decision_ms_mean":0.6,"decision_ms_p50":0.5,
+   "decision_ms_p90":1.1,"decision_ms_p99":4.8,"decision_ms_max":9.4},
   ...]}
 ```
 
@@ -282,6 +284,21 @@ mean, `null` under two observations. `fantasylands` counts hands *played
 in* fantasyland; `scoops` counts opponents scooped (all three rows won
 outright, or the opponent fouled while this bot did not), summed across
 hands; `royalties` is total royalty points earned (fouled hands earn none).
+
+`decisions`, `decision_ms_mean`, `decision_ms_p50`, `decision_ms_p90`,
+`decision_ms_p99`, `decision_ms_max`: wall-clock timing of this bot's
+decisions (`place` calls), measured around the arena's call into the bot —
+for a wire bot this includes the transport round-trip, not pure think time.
+`decisions` counts every call whether it returned a placement or faulted (a
+timeout's elapsed time is real and counted); `decision_ms_mean` and
+`decision_ms_max` are exact, while the three percentiles are approximated
+from a fixed-size log-scaled histogram (not the exact values), with
+relative error bounded by about ±4.5%. All five are `null` (`0` for
+`decisions`) when the bot never decided. **The `decision_ms_*` fields are
+the only ones in this report that are not reproducible from `seed`** — the
+same seed reproduces everything else in this document byte-for-byte
+(`decisions` included, given deterministic bots), but timing varies run to
+run.
 
 ### Progress lines (`--progress-json`, stderr, repeating)
 

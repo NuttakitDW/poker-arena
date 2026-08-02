@@ -48,6 +48,12 @@ pub fn match_report(config: &MatchConfig, seed: u64, result: &MatchResult) -> Ma
                 chips_per100_ci95: o.stats.ci95_half_width().map(|hw| hw * 100.0),
                 observations: o.stats.count(),
                 faults: o.faults,
+                decisions: o.decision_stats.count(),
+                decision_ms_mean: o.decision_stats.mean_ms(),
+                decision_ms_p50: o.decision_stats.quantile(0.5),
+                decision_ms_p90: o.decision_stats.quantile(0.9),
+                decision_ms_p99: o.decision_stats.quantile(0.99),
+                decision_ms_max: o.decision_stats.max_ms(),
                 behavior: behavior_report(&o.behavior),
             })
             .collect(),
@@ -140,6 +146,16 @@ mod tests {
             assert!(b["chips_per100_ci95"].as_f64().unwrap() >= 0.0);
             let vpip = b["behavior"]["vpip"].as_f64().unwrap();
             assert!((0.0..=1.0).contains(&vpip));
+            assert!(b["decisions"].as_u64().unwrap() > 0);
+            let mean = b["decision_ms_mean"].as_f64().unwrap();
+            let p50 = b["decision_ms_p50"].as_f64().unwrap();
+            let p90 = b["decision_ms_p90"].as_f64().unwrap();
+            let p99 = b["decision_ms_p99"].as_f64().unwrap();
+            let max = b["decision_ms_max"].as_f64().unwrap();
+            assert!(mean >= 0.0);
+            assert!(p50 <= p90, "p50 {p50} > p90 {p90}");
+            assert!(p90 <= p99, "p90 {p90} > p99 {p99}");
+            assert!(p99 <= max, "p99 {p99} > max {max}");
         }
         // The wire shape is the parse contract: round-trip through it.
         let text = serde_json::to_string(&report).unwrap();

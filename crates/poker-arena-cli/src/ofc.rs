@@ -302,13 +302,22 @@ pub fn run(args: RunArgs, spec: OfcSpec) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// Compact `p50/p99/max` decision-timing field, one decimal each; `-` when
+/// the bot never decided (`decision_stats.count() == 0`).
+fn decision_field(stats: &poker_arena::stat::DecisionStats) -> String {
+    match (stats.quantile(0.5), stats.quantile(0.99), stats.max_ms()) {
+        (Some(p50), Some(p99), Some(max)) => format!("{p50:.1}/{p99:.1}/{max:.1}"),
+        _ => "-".to_string(),
+    }
+}
+
 fn print_report(spec: &OfcSpec, seed: u64, result: &OfcMatchResult) {
     println!(
         "game: {} | hands: {} | seed: {}",
         spec.name, result.hands_played, seed
     );
     println!(
-        "{:<16} {:>10} {:>10} {:>24} {:>7} {:>6} {:>7} {:>10} {:>7}",
+        "{:<16} {:>10} {:>10} {:>24} {:>7} {:>6} {:>7} {:>10} {:>7} {:>16}",
         "bot",
         "hands",
         "points",
@@ -317,7 +326,8 @@ fn print_report(spec: &OfcSpec, seed: u64, result: &OfcMatchResult) {
         "fls",
         "scoops",
         "royalties",
-        "faults"
+        "faults",
+        "ms p50/p99/max"
     );
     for o in &result.outcomes {
         let field = match o.stats.ci95_half_width() {
@@ -325,7 +335,7 @@ fn print_report(spec: &OfcSpec, seed: u64, result: &OfcMatchResult) {
             None => format!("{:+.3} ± n/a", o.stats.mean()),
         };
         println!(
-            "{:<16} {:>10} {:>10} {:>24} {:>7} {:>6} {:>7} {:>10} {:>7}",
+            "{:<16} {:>10} {:>10} {:>24} {:>7} {:>6} {:>7} {:>10} {:>7} {:>16}",
             o.name,
             result.hands_played,
             o.total_points,
@@ -334,7 +344,8 @@ fn print_report(spec: &OfcSpec, seed: u64, result: &OfcMatchResult) {
             o.fantasylands,
             o.scoops,
             o.royalties,
-            o.faults
+            o.faults,
+            decision_field(&o.decision_stats)
         );
     }
 
