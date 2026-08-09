@@ -1,0 +1,12 @@
+[package]
+name = "poker-bot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Equity-heuristic wire bot for every poker-arena game, with the abstraction layers a future solver plugs into."
+
+[dependencies]
+poker-arena = { workspace = true }
+poker-core = { workspace = true }
+poker-wire = { workspace = true }
+serde_json = { workspace = true }

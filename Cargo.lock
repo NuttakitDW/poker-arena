@@ -441,6 +441,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "poker-bot"
+version = "0.1.0"
+dependencies = [
+ "poker-arena",
+ "poker-core",
+ "poker-wire",
+ "serde_json",
+]
+
+[[package]]
 name = "poker-core"
 version = "0.1.0"
 dependencies = [

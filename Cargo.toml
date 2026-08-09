@@ -4,6 +4,7 @@ members = [
     "crates/poker-wire",
     "crates/poker-arena",
     "crates/poker-arena-cli",
+    "crates/poker-bot",
 ]
 resolver = "3"
 
