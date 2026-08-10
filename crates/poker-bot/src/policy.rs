@@ -14,9 +14,12 @@ use poker_core::card::Card;
 use poker_core::game::spec::GameSpec;
 use poker_core::rng::Rng64;
 use poker_wire::action::{Action, BetBounds};
+use poker_wire::game::BettingKind;
 use poker_wire::message::WireDecision;
 
+use crate::blueprint::{Blueprint, Bucketer, infoset_key};
 use crate::equity::{equity, equity_with_replacement};
+use crate::sim::{Abs, Kind};
 use crate::table::Table;
 
 /// Rollouts per wager decision (halved under tight deadlines).
@@ -34,19 +37,63 @@ const CALL_SLACK: f64 = 0.02;
 pub struct Policy {
     spec: GameSpec,
     rng: Rng64,
+    /// Trained average strategy, when one exists for this game.
+    blueprint: Option<Blueprint>,
+    bucketer: Bucketer,
+    /// Decisions answered by the blueprint vs. the equity fallback,
+    /// reported on drop so operators can see abstraction coverage.
+    blueprint_hits: u64,
+    fallbacks: u64,
+}
+
+impl Policy {
+    /// `(blueprint decisions, fallback decisions)` so far; meaningful only
+    /// when a blueprint is loaded.
+    pub fn coverage(&self) -> (u64, u64) {
+        (self.blueprint_hits, self.fallbacks)
+    }
 }
 
 impl Policy {
     pub fn new(spec: GameSpec, seed: u64) -> Policy {
+        let bucketer = Bucketer::new(&spec);
         Policy {
             spec,
             rng: Rng64::from_seed_stream(seed, 0),
+            blueprint: None,
+            bucketer,
+            blueprint_hits: 0,
+            fallbacks: 0,
         }
     }
 
-    /// Answer one `act`. `deadline_ms` shrinks the sample budget so slow
-    /// hosts never flirt with the arena's timeout.
+    pub fn with_blueprint(spec: GameSpec, seed: u64, blueprint: Blueprint) -> Policy {
+        let mut policy = Policy::new(spec, seed);
+        policy.blueprint = Some(blueprint);
+        policy
+    }
+
+    /// Answer one `act`. The trained blueprint decides when it knows this
+    /// infoset; the equity heuristic covers everything else. `deadline_ms`
+    /// shrinks the sample budget so slow hosts never flirt with the
+    /// arena's timeout.
     pub fn decide(
+        &mut self,
+        decision: &WireDecision,
+        table: &Table,
+        deadline_ms: Option<u64>,
+    ) -> Action {
+        if let Some(action) = self.blueprint_action(decision, table) {
+            self.blueprint_hits += 1;
+            return action;
+        }
+        if self.blueprint.is_some() {
+            self.fallbacks += 1;
+        }
+        self.heuristic(decision, table, deadline_ms)
+    }
+
+    fn heuristic(
         &mut self,
         decision: &WireDecision,
         table: &Table,
@@ -74,6 +121,139 @@ impl Policy {
                 }
             }
         }
+    }
+
+    /// Play from the trained strategy: rebuild the trainer's infoset key
+    /// from the table view, sample the stored distribution, and translate
+    /// the abstract pick into a legal wire action. Any mismatch — unseen
+    /// infoset, a line outside the abstraction, a menu shape difference —
+    /// returns `None` and the equity heuristic takes over.
+    fn blueprint_action(&mut self, decision: &WireDecision, table: &Table) -> Option<Action> {
+        self.blueprint.as_ref()?;
+        let (kind, menu) = self.abstract_menu(decision, table);
+        if menu.len() < 2 {
+            return None;
+        }
+        let bucket = self
+            .bucketer
+            .bucket(&self.spec, table, table.street_index, &mut self.rng);
+        let key = infoset_key(
+            table.street_index,
+            kind,
+            bucket,
+            &table.street_path,
+            menu.len(),
+        );
+        let probs = self.blueprint.as_ref()?.strategy.get(&key)?;
+        if probs.len() != menu.len() {
+            return None;
+        }
+        let pick = menu[sample_f32(probs, &mut self.rng)];
+        self.translate(pick, decision, table)
+    }
+
+    /// The abstract action list the trainer had at this decision point,
+    /// reconstructed from the arena's offer.
+    fn abstract_menu(&self, decision: &WireDecision, table: &Table) -> (Kind, Vec<Abs>) {
+        match decision {
+            WireDecision::Wager {
+                call, bet, raise, ..
+            } => {
+                let mut menu = Vec::with_capacity(4);
+                if call.is_some() {
+                    menu.push(Abs::Fold);
+                }
+                menu.push(Abs::CheckCall);
+                if bet.is_some() || raise.is_some() {
+                    match self.spec.betting {
+                        BettingKind::FixedLimit { .. } => menu.push(Abs::BetFixed),
+                        BettingKind::NoLimit | BettingKind::PotLimit => {
+                            menu.push(Abs::BetPot);
+                            menu.push(Abs::AllIn);
+                        }
+                    }
+                }
+                (Kind::Wager, menu)
+            }
+            WireDecision::BringIn { .. } => (Kind::BringIn, vec![Abs::BringIn, Abs::BetFixed]),
+            WireDecision::Draw { max_discards } => {
+                let cap = usize::from(*max_discards).min(table.hole.len()) as u8;
+                (Kind::Draw, (0..=cap).map(Abs::Draw).collect())
+            }
+        }
+    }
+
+    fn translate(&mut self, pick: Abs, decision: &WireDecision, table: &Table) -> Option<Action> {
+        match (pick, decision) {
+            (Abs::Fold, WireDecision::Wager { fold: true, .. }) => Some(Action::Fold),
+            (Abs::CheckCall, WireDecision::Wager { check, call, .. }) => {
+                if *check {
+                    Some(Action::Check)
+                } else if call.is_some() {
+                    Some(Action::Call)
+                } else {
+                    None
+                }
+            }
+            (Abs::BetFixed | Abs::BetPot | Abs::AllIn, WireDecision::Wager { bet, raise, .. }) => {
+                let bounds = bet.or(*raise)?;
+                let to = match pick {
+                    Abs::BetFixed => bounds.min_to,
+                    Abs::AllIn => bounds.max_to,
+                    _ => sized_to(bounds, table.pot(), 0),
+                };
+                if bet.is_some() {
+                    Some(Action::Bet { to })
+                } else {
+                    Some(Action::Raise { to })
+                }
+            }
+            (Abs::BringIn, WireDecision::BringIn { .. }) => Some(Action::BringIn),
+            (Abs::BetFixed, WireDecision::BringIn { complete, .. }) => Some(Action::Bet {
+                to: complete.min_to,
+            }),
+            (Abs::Draw(n), WireDecision::Draw { .. }) => Some(Action::Discard {
+                cards: self.discards_of_count(table, n),
+            }),
+            _ => None,
+        }
+    }
+
+    /// The best discard set of exactly `n` cards by sampled equity — the
+    /// blueprint chose *how many*; this chooses *which*.
+    fn discards_of_count(&mut self, table: &Table, n: u8) -> Vec<Card> {
+        let hand = table.hole.clone();
+        let count = usize::from(n).min(hand.len());
+        if count == 0 {
+            return Vec::new();
+        }
+        let len = hand.len();
+        let mut best: Option<(f64, Vec<Card>)> = None;
+        for mask in 0u32..(1 << len) {
+            if mask.count_ones() as usize != count {
+                continue;
+            }
+            let keep: Vec<Card> = (0..len)
+                .filter(|i| mask & (1 << i) == 0)
+                .map(|i| hand[i])
+                .collect();
+            let e = equity_with_replacement(
+                &self.spec,
+                table,
+                &keep,
+                count,
+                &mut self.rng,
+                DRAW_SAMPLES,
+            );
+            if best.as_ref().is_none_or(|(top, _)| e > *top) {
+                let discards = (0..len)
+                    .filter(|i| mask & (1 << i) != 0)
+                    .map(|i| hand[i])
+                    .collect();
+                best = Some((e, discards));
+            }
+        }
+        best.map(|(_, discards)| discards).unwrap_or_default()
     }
 
     fn samples(&self, base: u32, deadline_ms: Option<u64>) -> u32 {
@@ -183,6 +363,19 @@ impl Policy {
         }
         best.map(|(_, discards)| discards).unwrap_or_default()
     }
+}
+
+/// Sample an index from an `f32` probability vector.
+fn sample_f32(probs: &[f32], rng: &mut Rng64) -> usize {
+    let roll = (rng.next_u64() as f64 / u64::MAX as f64) as f32;
+    let mut cumulative = 0.0f32;
+    for (index, probability) in probs.iter().enumerate() {
+        cumulative += probability;
+        if roll < cumulative {
+            return index;
+        }
+    }
+    probs.len() - 1
 }
 
 /// A pot-sized total for this street, clamped into the offered bounds.

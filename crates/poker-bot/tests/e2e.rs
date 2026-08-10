@@ -106,6 +106,68 @@ fn every_ofc_game_plays_fault_free() {
 }
 
 #[test]
+fn a_trained_blueprint_plays_fault_free_over_the_wire() {
+    use poker_bot::cfr::Trainer;
+
+    // A deliberately small training run: enough to push common infosets
+    // past the save threshold, fast enough for CI. Strength is validated
+    // by match runs, not this test.
+    let spec = GameSpec::by_id("holdem-fl", STAKES).expect("registry id");
+    let mut trainer = Trainer::new(spec.clone(), STACK, 5);
+    trainer.run_iterations(4_000);
+    let mut blueprint = trainer.blueprint();
+    assert!(!blueprint.strategy.is_empty());
+    // Stamp it trusted so the loader activates it; this test checks wire
+    // conformance of blueprint play, not strength.
+    blueprint.validated_edge = Some(1.0);
+    blueprint.validated_ci = Some(0.5);
+
+    let dir = std::env::temp_dir().join("poker-bot-e2e-blueprints");
+    blueprint
+        .save(&dir.join(poker_bot::blueprint::Blueprint::file_name("holdem-fl")))
+        .expect("save blueprint");
+
+    let hello = betting_hello(&spec, TIMEOUT);
+    let command = format!(
+        "{} --blueprints {}",
+        env!("CARGO_BIN_EXE_poker-bot"),
+        dir.display()
+    );
+    let mut wire = WireBot::spawn_cmd(&command, hello, TIMEOUT).expect("spawn");
+    wire.set_name("trained");
+    wire.set_timeout(Some(TIMEOUT));
+
+    let config = MatchConfig {
+        spec,
+        decks: 30,
+        seed: 12,
+        dealing: DealingMode::Seeded,
+        starting_stack: STACK,
+        fault_policy: FaultPolicy::Substitute,
+        timeout: Some(TIMEOUT),
+    };
+    let mut bots: Vec<Box<dyn poker_arena::bot::Bot>> =
+        vec![Box::new(wire), Box::new(Random::new("random", 4))];
+    let result = run_match(&config, &mut bots, None, None).expect("match runs");
+    assert_eq!(result.outcomes[0].faults, 0, "trained bot faulted");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn trainer_menus_and_player_menus_never_disagree() {
+    // The infoset key carries the menu length, so a blueprint lookup can
+    // only ever return a probability vector whose length matches the menu
+    // the player rebuilt. Exercise the collision that motivated this: deep
+    // stacks vs. capped stacks producing different wager menus on
+    // identical street/bucket/path addresses is now two distinct keys.
+    use poker_bot::blueprint::infoset_key;
+    use poker_bot::sim::Kind;
+    let deep = infoset_key(1, Kind::Wager, 3, "", 3);
+    let capped = infoset_key(1, Kind::Wager, 3, "", 2);
+    assert_ne!(deep, capped);
+}
+
+#[test]
 fn the_bot_beats_random_at_holdem() {
     // Not a statistical proof, just a smoke check with a healthy margin:
     // over 200 seeded hands the equity bot should be comfortably ahead of

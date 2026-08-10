@@ -16,8 +16,11 @@
 
 pub mod abstraction;
 pub mod betting;
+pub mod blueprint;
+pub mod cfr;
 pub mod equity;
 pub mod iso;
 pub mod ofc;
 pub mod policy;
+pub mod sim;
 pub mod table;

@@ -2,12 +2,15 @@
 //! [`Table`], and one [`Policy`] decision per `act`.
 
 use std::io::{BufRead, Write};
+use std::path::Path;
 
 use poker_core::game::spec::GameSpec;
 use poker_wire::action::Action;
 use poker_wire::framing::{WireError, read_msg, write_msg};
+use poker_wire::game::BettingKind;
 use poker_wire::message::{ArenaMsg, BotMsg, WireDecision};
 
+use crate::blueprint::Blueprint;
 use crate::policy::Policy;
 use crate::table::Table;
 
@@ -45,12 +48,21 @@ fn caller_action(decision: &WireDecision) -> Action {
     }
 }
 
-/// Run a betting session whose `hello` has already been read.
+/// Run a betting session whose `hello` has already been read. When
+/// `blueprints` holds a trained strategy for this game, it drives play;
+/// otherwise (and on any unseen infoset) the equity heuristic does.
+///
+/// A blueprint is only used when its validation stamp says it beats the
+/// fallback ([`Blueprint::trusted`]); `trust_unvalidated` bypasses that
+/// gate — it exists for the trainer's own validation matches, where the
+/// candidate must play *before* it has a stamp.
 pub fn run<R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
     hello: ArenaMsg,
     seed: u64,
+    blueprints: Option<&Path>,
+    trust_unvalidated: bool,
 ) -> Result<(), String> {
     let ArenaMsg::Hello {
         game_id,
@@ -62,8 +74,44 @@ pub fn run<R: BufRead, W: Write>(
         return Err("expected a hello as the first message".into());
     };
 
+    let mut big_bet = false;
     let mut brain = match GameSpec::by_id(&game_id, stakes) {
-        Some(spec) => Brain::Policy(Box::new(Policy::new(spec, seed))),
+        Some(spec) => {
+            big_bet = !matches!(spec.betting, BettingKind::FixedLimit { .. });
+            let trained = blueprints
+                .map(|dir| dir.join(Blueprint::file_name(&game_id)))
+                .filter(|path| path.exists())
+                .and_then(|path| match Blueprint::load(&path) {
+                    Ok(blueprint) if trust_unvalidated || blueprint.trusted() => {
+                        eprintln!(
+                            "poker-bot: loaded blueprint {} ({} infosets, {} iterations, \
+                             validated edge {:?})",
+                            path.display(),
+                            blueprint.strategy.len(),
+                            blueprint.iterations,
+                            blueprint.validated_edge
+                        );
+                        Some(blueprint)
+                    }
+                    Ok(blueprint) => {
+                        eprintln!(
+                            "poker-bot: blueprint {} not trusted (validated edge {:?}); \
+                             using the equity heuristic — train longer to activate it",
+                            path.display(),
+                            blueprint.validated_edge
+                        );
+                        None
+                    }
+                    Err(e) => {
+                        eprintln!("poker-bot: failed to load {}: {e}", path.display());
+                        None
+                    }
+                });
+            Brain::Policy(Box::new(match trained {
+                Some(blueprint) => Policy::with_blueprint(spec, seed, blueprint),
+                None => Policy::new(spec, seed),
+            }))
+        }
         None => {
             eprintln!("poker-bot: unknown game {game_id:?}; playing the check/call floor");
             Brain::Caller
@@ -72,6 +120,7 @@ pub fn run<R: BufRead, W: Write>(
     write_msg(writer, &BotMsg::Join {}).map_err(|e| e.to_string())?;
 
     let mut table = Table::default();
+    table.big_bet = big_bet;
     loop {
         let msg = match read_msg::<_, ArenaMsg>(reader) {
             Ok(msg) => msg,
@@ -89,7 +138,17 @@ pub fn run<R: BufRead, W: Write>(
                 let action = brain.decide(&decision, &table, deadline_ms);
                 write_msg(writer, &BotMsg::Action { action }).map_err(|e| e.to_string())?;
             }
-            ArenaMsg::MatchEnd {} => return Ok(()),
+            ArenaMsg::MatchEnd {} => {
+                if let Brain::Policy(policy) = &brain {
+                    let (hits, fallbacks) = policy.coverage();
+                    if hits + fallbacks > 0 {
+                        eprintln!(
+                            "poker-bot: blueprint answered {hits} decisions, fallback {fallbacks}"
+                        );
+                    }
+                }
+                return Ok(());
+            }
             // hello (repeated), joined, hand-end, unknown: nothing to do.
             _ => {}
         }

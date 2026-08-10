@@ -37,6 +37,16 @@ pub struct Table {
     pub folded: Vec<bool>,
     /// Stacks at hand start.
     pub stacks: Vec<u64>,
+    /// Spec index of the current street (`StreetStart.street`).
+    pub street_index: usize,
+    /// The current street's abstract action path, letters matching
+    /// [`crate::sim::Abs::letter`]: draw counts as `g<n>`, then one letter
+    /// per betting action (check and call share `c`).
+    pub street_path: String,
+    /// True for pot/no-limit games: bets and raises map to the big-bet
+    /// letters (`p`/`a`) instead of the fixed-limit `b`. Set by the session
+    /// loop, which knows the game's betting structure.
+    pub big_bet: bool,
 }
 
 impl Table {
@@ -52,6 +62,8 @@ impl Table {
         self.seen_street_start = false;
         self.folded = vec![false; seats];
         self.stacks = vec![0; seats];
+        self.street_index = 0;
+        self.street_path.clear();
     }
 
     /// Fold one observed event into the state.
@@ -72,7 +84,7 @@ impl Table {
                     self.street[*seat] += amount;
                 }
             }
-            Event::StreetStart { .. } => {
+            Event::StreetStart { street, .. } => {
                 if self.seen_street_start {
                     for seat in 0..self.street.len() {
                         self.prev_streets[seat] += self.street[seat];
@@ -81,6 +93,8 @@ impl Table {
                 } else {
                     self.seen_street_start = true;
                 }
+                self.street_index = usize::from(*street);
+                self.street_path.clear();
             }
             Event::DealHole { seat, cards, count } => {
                 if *seat == self.seat {
@@ -99,7 +113,7 @@ impl Table {
                 seat,
                 action,
                 street_commit,
-                ..
+                all_in,
             } => {
                 if matches!(action, Action::Fold) {
                     self.folded[*seat] = true;
@@ -108,17 +122,36 @@ impl Table {
                 // current street (blinds included); max() guards against
                 // no-wager actions reporting a stale zero.
                 self.street[*seat] = self.street[*seat].max(*street_commit);
+                // Mirror the trainer's path letters. Discards are recorded
+                // from `DrawResult` (which always carries the public count),
+                // never from here.
+                match action {
+                    Action::Check | Action::Call => self.street_path.push('c'),
+                    Action::Bet { .. } | Action::Raise { .. } => {
+                        self.street_path.push(if !self.big_bet {
+                            'b'
+                        } else if *all_in {
+                            'a'
+                        } else {
+                            'p'
+                        });
+                    }
+                    Action::BringIn => self.street_path.push('i'),
+                    Action::Fold | Action::Discard { .. } => {}
+                }
             }
             Event::DrawResult {
                 seat,
                 discarded,
                 drawn,
-                ..
+                count,
             } => {
                 if *seat == self.seat {
                     self.hole.retain(|card| !discarded.contains(card));
                     self.hole.extend(drawn.iter().copied());
                 }
+                self.street_path.push('g');
+                self.street_path.push(char::from(b'0' + (*count).min(9)));
             }
             _ => {}
         }

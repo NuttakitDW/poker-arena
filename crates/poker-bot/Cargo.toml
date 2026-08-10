@@ -9,4 +9,5 @@ description = "Equity-heuristic wire bot for every poker-arena game, with the ab
 poker-arena = { workspace = true }
 poker-core = { workspace = true }
 poker-wire = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }

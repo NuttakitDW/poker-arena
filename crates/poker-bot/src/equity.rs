@@ -126,7 +126,8 @@ pub fn equity_with_replacement(
 /// rest, mirroring the engine's settlement: each side of the pot goes to
 /// its best qualifying hand(s); one qualifying side scoops; if neither side
 /// qualifies anywhere, the pot splits evenly among everyone shown.
-fn pot_share(
+/// Public because the trainer settles its abstract hands with the same rule.
+pub fn pot_share(
     showdown: &ShowdownSpec,
     mine: &[Card],
     opponents: &[Vec<Card>],
