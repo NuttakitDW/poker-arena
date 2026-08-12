@@ -315,6 +315,30 @@ opponent that punishes fouling from day one; `filler` (the fault
 substitution rule as a bot) is the deterministic floor, `random` the
 chaos baseline.
 
+## Competitor bot (poker-bot)
+
+**A trained strategy must beat the bot it replaces before it plays.**
+Blueprints carry a `validated_edge ± ci` stamp from a duplicate-dealt match
+against the equity fallback, and the loader activates one only when
+`edge − ci ≥ 0`. Undertrained CFR average strategies measurably *lose* to
+the fallback (and arena matches against specialists confirmed the gate's
+verdicts), so trust is earned by measurement, never assumed from training
+effort. Compile-time embedding (`POKER_BOT_EMBED_BLUEPRINT`) bypasses the
+gate by design: embedding is an explicit operator action, used to ship a
+strategy or to deliberately test an unstamped one against live opponents.
+
+**Information-set keys must never truncate public history.** The
+first-generation key reset the action path every street — a smaller,
+different game whose blueprint an arena specialist beat by more than the
+untrained fallback (−82 vs −50 BB/100): the equilibrium of a wrong tree
+carries no guarantee about the right one, and no amount of training
+recovers information the key erased. `tree.rs` is the standing contract:
+the true public game (betting sequences, per-round discard counts, exact
+enumerated sizes) is what keys address into; abstraction may merge private
+card states or remove actions, never cut the tree. Suit isomorphism is the
+one strictly lossless merge (the game's only automorphisms; 2,598,960
+hands → 134,459 classes, orbit census 24/12/4 pinned by enumeration).
+
 ## Conventions
 
 **Singular file names** (`card.rs`, `event.rs`, `pot.rs`). Project-wide,

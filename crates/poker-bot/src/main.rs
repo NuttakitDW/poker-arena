@@ -26,6 +26,9 @@ fn main() -> ExitCode {
     let mut seed = 1u64;
     let mut tcp: Option<String> = None;
     let mut plans = false;
+    let mut lossless = false;
+    let mut equity_json = false;
+    let mut tree_json = false;
     let mut train = false;
     let mut game: Option<String> = None;
     let mut seconds = 60u64;
@@ -33,11 +36,15 @@ fn main() -> ExitCode {
     let mut blueprints: Option<PathBuf> = None;
     let mut trust_unvalidated = false;
     let mut validate_only = false;
+    let mut state: Option<PathBuf> = None;
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "plans" => plans = true,
+            "lossless" => lossless = true,
+            "equity-json" => equity_json = true,
+            "tree-json" => tree_json = true,
             "train" => train = true,
             "--game" => game = Some(next_value(&mut args, "--game")),
             "--seconds" => {
@@ -46,6 +53,7 @@ fn main() -> ExitCode {
                     .unwrap_or_else(|_| fail("--seconds expects a number"));
             }
             "--out" => out = PathBuf::from(next_value(&mut args, "--out")),
+            "--state" => state = Some(PathBuf::from(next_value(&mut args, "--state"))),
             "--validate-only" => validate_only = true,
             "--blueprints" => {
                 blueprints = Some(PathBuf::from(next_value(&mut args, "--blueprints")))
@@ -67,8 +75,31 @@ fn main() -> ExitCode {
         print_plans();
         return ExitCode::SUCCESS;
     }
+    if lossless {
+        print_lossless_27();
+        return ExitCode::SUCCESS;
+    }
+    if equity_json {
+        print_equity_json();
+        return ExitCode::SUCCESS;
+    }
+    if tree_json {
+        // 50 = the reference 2-D bucket count (10 made-equity x 5 draw-EV).
+        println!("{}", poker_bot::tree::explorer_json(50));
+        return ExitCode::SUCCESS;
+    }
     if train {
-        return run_training(game.as_deref(), seconds, &out, seed, validate_only);
+        if state.is_some() && game.is_none() {
+            fail("--state requires --game (checkpointing is per game)");
+        }
+        return run_training(
+            game.as_deref(),
+            seconds,
+            &out,
+            seed,
+            validate_only,
+            state.as_deref(),
+        );
     }
 
     // Playing: default to ./blueprints when present and not overridden.
@@ -160,6 +191,7 @@ fn run_training(
     out: &std::path::Path,
     seed: u64,
     validate_only: bool,
+    state: Option<&std::path::Path>,
 ) -> ExitCode {
     use poker_bot::blueprint::Blueprint;
     use poker_bot::cfr::Trainer;
@@ -195,7 +227,24 @@ fn run_training(
             }
         } else {
             let mut trainer = Trainer::new(spec.clone(), 10_000, seed);
+            if let Some(state_path) = state
+                && state_path.exists()
+            {
+                match trainer.load_state(state_path) {
+                    Ok(()) => eprintln!(
+                        "resumed {} at {} iterations",
+                        state_path.display(),
+                        trainer.iterations
+                    ),
+                    Err(e) => fail(&format!("loading {}: {e}", state_path.display())),
+                }
+            }
             trainer.run_for(std::time::Duration::from_secs(seconds));
+            if let Some(state_path) = state
+                && let Err(e) = trainer.save_state(state_path)
+            {
+                fail(&format!("saving {}: {e}", state_path.display()));
+            }
             trainer.blueprint()
         };
         if let Err(e) = blueprint.save(&path) {
@@ -293,6 +342,140 @@ fn validate(
     let edge = stats.mean() * per100;
     let ci = stats.ci95_half_width().unwrap_or(f64::INFINITY) * per100;
     Ok((edge, ci))
+}
+
+/// The 2-7 triple draw lossless-abstraction report: enumerated class
+/// counts, the measured blocker epsilon, and the per-level tree sizes.
+///
+/// All counts are computed live by full enumeration of C(52,5) hands —
+/// nothing here is a hardcoded claim. The tree metric is the same
+/// single-perspective product tree `plans` reports: per-street states ×
+/// betting sequences (17 for a capped heads-up fixed-limit street) ×
+/// draw options (6 on each of the three draw streets).
+fn print_lossless_27() {
+    use poker_bot::deuce::{blocker_epsilon, deuce_class, for_each_hand};
+    use poker_bot::iso::canonical_key;
+    use std::collections::HashSet;
+
+    eprintln!("enumerating all C(52,5) hands...");
+    let mut iso = HashSet::new();
+    let mut value = HashSet::new();
+    let mut raw = 0u64;
+    for_each_hand(|hand| {
+        raw += 1;
+        iso.insert(canonical_key(&[hand]));
+        value.insert(deuce_class(hand));
+    });
+    let (raw, iso, value) = (raw as f64, iso.len() as f64, value.len() as f64);
+
+    const SEQ: f64 = 17.0; // heads-up fixed-limit betting sequences/street
+    const DRAWS: f64 = 6.0; // 0..=5 discards
+    let tree = |s0: f64, s1: f64, s2: f64, s3: f64| {
+        (s0 * SEQ) * (s1 * SEQ * DRAWS) * (s2 * SEQ * DRAWS) * (s3 * SEQ * DRAWS)
+    };
+
+    let l0 = tree(raw, raw, raw, raw);
+    let l1 = tree(iso, iso, iso, iso);
+    let l2 = tree(iso, iso, iso, value);
+    let lossy = tree(50.0, 10.0, 10.0, 10.0);
+
+    println!("2-7 TRIPLE DRAW (27td-fl) - LOSSLESS ABSTRACTION REPORT");
+    println!();
+    println!("hand-state collapse (full enumeration):");
+    println!("  raw 5-card deals            {raw:>12.0}");
+    println!(
+        "  suit-isomorphism classes    {iso:>12.0}   ({:.2}x, strictly lossless)",
+        raw / iso
+    );
+    println!(
+        "  2-7 value classes           {value:>12.0}   ({:.2}x more, value-lossless)",
+        iso / value
+    );
+    println!();
+    println!("single-perspective tree (states x 17 bet seqs x 6 draw options / street):");
+    println!("  L0  raw                      {l0:>10.3e}   1x");
+    println!(
+        "  L1  suit isomorphism         {l1:>10.3e}   {:.0}x smaller   [strictly lossless]",
+        l0 / l1
+    );
+    println!(
+        "  L2  L1 + value-class last st {l2:>10.3e}   {:.2e}x smaller [value-lossless]",
+        l0 / l2
+    );
+    println!(
+        "  ref current lossy (solved)   {lossy:>10.3e}   {:.2e}x smaller [lossy, budget 1e12]",
+        l0 / lossy
+    );
+    println!();
+    println!("cost of the L2 merge (exact card-removal effect, C(47,5) enumeration/hand):");
+    let mut worst = 0.0f64;
+    for (label, delta) in blocker_epsilon() {
+        println!("  {label:<12} |d win prob| = {delta:.6}");
+        worst = worst.max(delta);
+    }
+    println!("  max measured epsilon = {worst:.6} of win probability");
+    println!();
+    println!(
+        "L1 is exact: suit permutations are the game's only automorphisms, so the\n\
+         merge preserves every equilibrium. L2 additionally merges hands whose 2-7\n\
+         showdown values are identical; the residual is the blocker effect above\n\
+         (different suit patterns remove different opponent flush combos), which is\n\
+         zero once no draws remain for the *acting* player's value and bounded by\n\
+         the measured epsilon for range reasoning."
+    );
+}
+
+/// The exact 2-7 class-equity table as one JSON array on stdout — the
+/// data source for the equity dashboard. Row fields: `r` display ranks
+/// ("7-5-4-3-2"), `c` hand category decoded from the frozen value
+/// encoding, `f` flush flag, `n` raw-hand count, `e` equity, `v` value.
+fn print_equity_json() {
+    use poker_bot::deuce::EquityTable;
+    const RANK_CHARS: [char; 13] = [
+        '2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A',
+    ];
+    const CLASSES: [&str; 9] = [
+        "high card",
+        "one pair",
+        "two pair",
+        "trips",
+        "straight",
+        "flush",
+        "full house",
+        "quads",
+        "straight flush",
+    ];
+    eprintln!("building the exact class-equity table...");
+    let table = EquityTable::shared();
+    let mut out = String::with_capacity(1 << 20);
+    out.push('[');
+    for (index, row) in table.rows().iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        let ranks: Vec<String> = (0..5)
+            .map(|slot| {
+                let nibble = (row.class >> (16 - 4 * slot)) & 0xF;
+                RANK_CHARS[nibble as usize].to_string()
+            })
+            .collect();
+        let flush = row.class & (1 << 20) != 0;
+        // The 2-7 encoding is 0xFFFFFF - high encoding; the high class
+        // sits in bits [20..24) of the recovered high value.
+        let high = 0x00FF_FFFF - row.value;
+        let class = CLASSES[((high >> 20) & 0xF) as usize];
+        out.push_str(&format!(
+            "{{\"r\":\"{}\",\"c\":\"{}\",\"f\":{},\"n\":{},\"e\":{:.6},\"v\":{}}}",
+            ranks.join("-"),
+            class,
+            flush,
+            row.count,
+            row.equity,
+            row.value,
+        ));
+    }
+    out.push(']');
+    println!("{out}");
 }
 
 /// The abstraction table: one row per game, and the budget every tree must
