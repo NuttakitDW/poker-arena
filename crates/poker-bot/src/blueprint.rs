@@ -37,11 +37,29 @@ pub fn infoset_key(street: usize, kind: Kind, bucket: u64, path: &str, menu_len:
     format!("{street}|{}|{bucket}|{path}|{menu_len}", kind.letter())
 }
 
-/// Maps a hand context to its street's equity bucket, caching by the
-/// lossless iso key so every isomorphic context is estimated exactly once.
+/// Maps a hand context to its street's equity bucket.
+///
+/// Two paths: games whose showdown is pure 2-7 on the player's own five
+/// cards (`27td-fl`, `27sd-nl`) read the exact class-equity table — a
+/// lookup, no sampling, no cache needed; everything else estimates by
+/// Monte-Carlo rollouts, cached by the lossless iso key so every
+/// isomorphic context is estimated exactly once.
 pub struct Bucketer {
     plan: GamePlan,
     cache: HashMap<(usize, u128), f64>,
+    /// Exact-table fast path is sound for this game.
+    deuce_exact: bool,
+}
+
+/// The exact table applies when the *entire* showdown is 2-7 on the
+/// player's own cards: one hi side, `DeuceToSevenLow`, `AllOwn`. Split
+/// games with a 2-7 half (badeucy, drawmaha-27) still need rollouts for
+/// the other half.
+fn deuce_exact_applies(spec: &GameSpec) -> bool {
+    use poker_core::eval::{EvalKind, HoleUsage};
+    spec.showdown.lo.is_none()
+        && spec.showdown.hi.kind == EvalKind::DeuceToSevenLow
+        && spec.showdown.hi.usage == HoleUsage::AllOwn
 }
 
 impl Bucketer {
@@ -49,6 +67,7 @@ impl Bucketer {
         Bucketer {
             plan: plan(spec),
             cache: HashMap::new(),
+            deuce_exact: deuce_exact_applies(spec),
         }
     }
 
@@ -68,6 +87,12 @@ impl Bucketer {
             .max(1);
         if buckets == 1 {
             return 0;
+        }
+        // Fast path: exact class equity by table lookup (see EquityTable).
+        if self.deuce_exact
+            && let Some(exact) = crate::deuce::EquityTable::shared().equity(&table.hole)
+        {
+            return bucket_of(exact, buckets);
         }
         // Context: my private cards, my upcards, everyone else's visible
         // upcards (dead cards shift equity), the board.
