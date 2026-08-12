@@ -29,7 +29,20 @@ pub struct Trainer {
     regrets: HashMap<String, Vec<f64>>,
     strategy_sum: HashMap<String, Vec<f64>>,
     rng: Rng64,
+    seed: u64,
     pub iterations: u64,
+}
+
+/// The persisted trainer state: everything needed to continue a run in a
+/// later process. The RNG is not stored — resuming re-streams it from
+/// `(seed, iterations)`, which keeps chunked runs deterministic without
+/// replaying the original sample path.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct TrainerState {
+    pub game_id: String,
+    pub iterations: u64,
+    pub regrets: HashMap<String, Vec<f64>>,
+    pub strategy_sum: HashMap<String, Vec<f64>>,
 }
 
 impl Trainer {
@@ -41,8 +54,46 @@ impl Trainer {
             regrets: HashMap::new(),
             strategy_sum: HashMap::new(),
             rng: Rng64::from_seed_stream(seed, 0),
+            seed,
             iterations: 0,
         }
+    }
+
+    /// Save the accumulated regrets and average strategy for a later
+    /// [`Trainer::load_state`].
+    pub fn save_state(&self, path: &std::path::Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let state = TrainerState {
+            game_id: self.sim.spec.id.to_string(),
+            iterations: self.iterations,
+            regrets: self.regrets.clone(),
+            strategy_sum: self.strategy_sum.clone(),
+        };
+        let file = std::fs::File::create(path)?;
+        serde_json::to_writer(std::io::BufWriter::new(file), &state).map_err(std::io::Error::other)
+    }
+
+    /// Resume from a state saved by [`Trainer::save_state`]. Fails if the
+    /// state belongs to a different game.
+    pub fn load_state(&mut self, path: &std::path::Path) -> std::io::Result<()> {
+        let file = std::fs::File::open(path)?;
+        let state: TrainerState = serde_json::from_reader(std::io::BufReader::new(file))
+            .map_err(std::io::Error::other)?;
+        if state.game_id != self.sim.spec.id {
+            return Err(std::io::Error::other(format!(
+                "state is for {}, trainer is for {}",
+                state.game_id, self.sim.spec.id
+            )));
+        }
+        self.iterations = state.iterations;
+        self.regrets = state.regrets;
+        self.strategy_sum = state.strategy_sum;
+        // A fresh stream per resume keeps chunks deterministic yet
+        // non-repeating: stream index = iterations already done.
+        self.rng = Rng64::from_seed_stream(self.seed, self.iterations);
+        Ok(())
     }
 
     /// Run until `budget` elapses; returns iterations completed in this run.

@@ -30,6 +30,40 @@ impl Brain {
     }
 }
 
+/// The blueprint baked in at compile time, when the binary was built with
+/// `POKER_BOT_EMBED_BLUEPRINT` (see `build.rs`). Embedding is an explicit
+/// operator action, so an embedded blueprint plays without the
+/// validated-edge gate that governs directory loading — the operator is
+/// vouching for it (or deliberately testing it, as the milestone loop
+/// does against arena opponents).
+#[cfg(embedded_blueprint)]
+const EMBEDDED_BLUEPRINT: &str = include_str!(concat!(env!("OUT_DIR"), "/embedded-blueprint.json"));
+
+fn embedded_blueprint(game_id: &str) -> Option<Blueprint> {
+    #[cfg(embedded_blueprint)]
+    {
+        match serde_json::from_str::<Blueprint>(EMBEDDED_BLUEPRINT) {
+            Ok(blueprint) if blueprint.game_id == game_id => {
+                eprintln!(
+                    "poker-bot: playing embedded blueprint ({} infosets, {} iterations)",
+                    blueprint.strategy.len(),
+                    blueprint.iterations
+                );
+                return Some(blueprint);
+            }
+            Ok(blueprint) => {
+                eprintln!(
+                    "poker-bot: embedded blueprint is for {}, not {game_id}; ignoring",
+                    blueprint.game_id
+                );
+            }
+            Err(e) => eprintln!("poker-bot: embedded blueprint unreadable: {e}"),
+        }
+    }
+    let _ = game_id;
+    None
+}
+
 /// The spec-appendix floor strategy: check, else call, else fold; stand
 /// pat at draws; post the bring-in.
 fn caller_action(decision: &WireDecision) -> Action {
@@ -78,35 +112,37 @@ pub fn run<R: BufRead, W: Write>(
     let mut brain = match GameSpec::by_id(&game_id, stakes) {
         Some(spec) => {
             big_bet = !matches!(spec.betting, BettingKind::FixedLimit { .. });
-            let trained = blueprints
-                .map(|dir| dir.join(Blueprint::file_name(&game_id)))
-                .filter(|path| path.exists())
-                .and_then(|path| match Blueprint::load(&path) {
-                    Ok(blueprint) if trust_unvalidated || blueprint.trusted() => {
-                        eprintln!(
-                            "poker-bot: loaded blueprint {} ({} infosets, {} iterations, \
+            let trained = embedded_blueprint(&game_id).or_else(|| {
+                blueprints
+                    .map(|dir| dir.join(Blueprint::file_name(&game_id)))
+                    .filter(|path| path.exists())
+                    .and_then(|path| match Blueprint::load(&path) {
+                        Ok(blueprint) if trust_unvalidated || blueprint.trusted() => {
+                            eprintln!(
+                                "poker-bot: loaded blueprint {} ({} infosets, {} iterations, \
                              validated edge {:?})",
-                            path.display(),
-                            blueprint.strategy.len(),
-                            blueprint.iterations,
-                            blueprint.validated_edge
-                        );
-                        Some(blueprint)
-                    }
-                    Ok(blueprint) => {
-                        eprintln!(
-                            "poker-bot: blueprint {} not trusted (validated edge {:?}); \
+                                path.display(),
+                                blueprint.strategy.len(),
+                                blueprint.iterations,
+                                blueprint.validated_edge
+                            );
+                            Some(blueprint)
+                        }
+                        Ok(blueprint) => {
+                            eprintln!(
+                                "poker-bot: blueprint {} not trusted (validated edge {:?}); \
                              using the equity heuristic — train longer to activate it",
-                            path.display(),
-                            blueprint.validated_edge
-                        );
-                        None
-                    }
-                    Err(e) => {
-                        eprintln!("poker-bot: failed to load {}: {e}", path.display());
-                        None
-                    }
-                });
+                                path.display(),
+                                blueprint.validated_edge
+                            );
+                            None
+                        }
+                        Err(e) => {
+                            eprintln!("poker-bot: failed to load {}: {e}", path.display());
+                            None
+                        }
+                    })
+            });
             Brain::Policy(Box::new(match trained {
                 Some(blueprint) => Policy::with_blueprint(spec, seed, blueprint),
                 None => Policy::new(spec, seed),
