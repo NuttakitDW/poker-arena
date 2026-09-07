@@ -47,6 +47,16 @@ don't guarantee stream stability across versions. A frozen snapshot test
 fails if the stream ever changes. Corollary: the whole match — cards,
 events, stats — replays byte-identically from one seed.
 
+(Revisited once, deliberately breaking that promise for matches recorded
+before it: the original seeding derived `s[0]`/`s[1]` from the seed alone
+and only mixed the stream into `s[2]`/`s[3]`, and xoshiro256\*\*'s first
+output reads only `s[1]` — so the first card of every deck in a match was
+the same card, pinned to the big blind. Seeding now hashes the stream into
+a key that every state word is expanded from. The snapshot constants were
+re-captured for the new stream; the frozen-forever rule applies from that
+point. Transcripts captured under the old seeding keep their bytes but no
+longer reproduce from their seeds.)
+
 ## Protocol
 
 **JSON Lines, optimized for bot-author friction, not bytes.** Throughput is

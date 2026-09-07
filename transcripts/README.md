@@ -240,6 +240,14 @@ games that existed before this pass's engine changes were subject to (2)
 and (3) — the seven split-half games below were generated fresh against
 the current binary and have only ever seen this one engine revision.
 
+**A note on the RNG revision.** Every source match below was captured
+before the deck RNG's seeding was revised (the old seeding dealt the same
+first card on every deck of a match — see `KEY_DECISIONS.md`, "The engine
+owns its RNG"). The hands here are still verbatim engine output in the
+current wire format, but re-running their commands on the current binary
+deals different cards, so the hand numbers cited below do not reproduce
+until this directory is regenerated against the revised stream.
+
 **A note on regeneration and reproducibility.** The commands below are
 exact, but a match built from a *different* binary build can produce
 different hands from the same `--seed`: this project's dealing/seating

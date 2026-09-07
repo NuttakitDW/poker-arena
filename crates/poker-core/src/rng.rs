@@ -30,17 +30,14 @@ impl Rng64 {
     /// hand number) yield independent sequences, so any hand of a match can
     /// be reproduced without replaying prior hands.
     pub fn from_seed_stream(seed: u64, stream: u64) -> Rng64 {
-        let mut a = seed;
-        // Decorrelate the stream axis from the seed axis before expansion.
-        let mut b = stream ^ 0xD1B5_4A32_D192_ED03;
+        let mut stream_state = stream ^ 0xD1B5_4A32_D192_ED03;
+        let mut key = seed ^ splitmix64(&mut stream_state);
         let mut state = [
-            splitmix64(&mut a),
-            splitmix64(&mut a),
-            splitmix64(&mut b),
-            splitmix64(&mut b),
+            splitmix64(&mut key),
+            splitmix64(&mut key),
+            splitmix64(&mut key),
+            splitmix64(&mut key),
         ];
-        state[2] ^= splitmix64(&mut a);
-        state[3] ^= splitmix64(&mut b);
         // xoshiro must not be seeded with all zeros; splitmix output makes
         // that practically impossible, but be explicit.
         if state == [0; 4] {
@@ -109,13 +106,34 @@ mod tests {
         assert_eq!(got, SNAPSHOT_SEED0_STREAM0, "xoshiro stream changed");
     }
 
-    /// Captured once from the initial implementation; see test above.
     const SNAPSHOT_SEED0_STREAM0: [u64; 4] = [
-        11_091_344_671_253_066_420,
-        8_173_996_640_537_286_706,
-        16_113_819_434_696_063_216,
-        4_438_403_619_926_855_730,
+        15_399_411_259_700_385_692,
+        13_448_803_775_643_146_997,
+        8_865_739_097_192_399_623,
+        10_849_236_641_218_379_930,
     ];
+
+    #[test]
+    fn first_output_varies_with_stream() {
+        const DECK_SIZE: u64 = 52;
+        const STREAMS: std::ops::Range<u64> = 0..8;
+
+        for seed in [0u64, 1, 2, 12345] {
+            let first_card_per_stream: Vec<u64> = STREAMS
+                .map(|stream| Rng64::from_seed_stream(seed, stream).below(DECK_SIZE))
+                .collect();
+
+            let all_same = first_card_per_stream
+                .iter()
+                .all(|&card| card == first_card_per_stream[0]);
+
+            assert!(
+                !all_same,
+                "seed {seed}: every stream deals card {} first",
+                first_card_per_stream[0]
+            );
+        }
+    }
 
     #[test]
     fn below_is_in_range() {

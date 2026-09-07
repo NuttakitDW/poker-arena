@@ -194,7 +194,7 @@ fn a_bot_granted_fantasyland_plays_the_next_hand_in_it() {
         let mut sinks: Vec<&mut dyn OfcEventSink> = vec![&mut probe];
         let mut bots = field(&spec, 3);
         run_ofc_match(
-            &config(spec, 150, 4242, FaultPolicy::Substitute),
+            &config(spec, 150, 3, FaultPolicy::Substitute),
             &mut bots,
             &mut sinks,
             None,
@@ -887,7 +887,7 @@ fn seat_rotation_freezes_through_fantasyland_hands_and_resumes_after() {
         let mut sinks: Vec<&mut dyn OfcEventSink> = vec![&mut probe];
         let mut bots = field(&spec, 3);
         run_ofc_match(
-            &config(spec, 200, 4242, FaultPolicy::Substitute),
+            &config(spec, 200, 3, FaultPolicy::Substitute),
             &mut bots,
             &mut sinks,
             None,
